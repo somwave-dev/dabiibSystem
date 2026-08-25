@@ -13,7 +13,7 @@ class Codes
     public function setConnect(): void
     {
         mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-        $this->db = new mysqli('127.0.0.1', 'root', '', 'clinic');
+        $this->db = new mysqli('localhost', 'root', '', 'dabiibsystem');
         $this->db->set_charset('utf8mb4');
     }
 

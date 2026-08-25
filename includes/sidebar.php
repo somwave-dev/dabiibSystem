@@ -386,17 +386,7 @@ if ($sidebarSections === []) {
 
     <div class="sidebar-inner" data-simplebar="">
         <div id="sidebar-menu" class="sidebar-menu clinic-dynamic-sidebar">
-            <div class="sidebar-top shadow-sm p-2 rounded-1 mb-3">
-                <div class="d-flex align-items-center">
-                    <span class="avatar rounded-circle flex-shrink-0 p-2">
-                        <img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/icons/trustcare.svg" alt="Clinic">
-                    </span>
-                    <div class="ms-2">
-                        <h6 class="fs-14 fw-semibold mb-0">Clinic suite</h6>
-                        <p class="fs-13 mb-0 text-muted">Operations menu</p>
-                    </div>
-                </div>
-            </div>
+            
 
             <style>
                 #sidebar-menu.clinic-dynamic-sidebar > ul > li > ul > li.submenu > a.clinic-submenu-toggle {
