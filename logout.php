@@ -1,5 +1,9 @@
 <?php
 require_once __DIR__ . '/config/session.php';
+require_once __DIR__ . '/config/auth_login.php';
+
+$logoutUid = (int) ($_SESSION['user_no'] ?? $_SESSION['User_ID'] ?? 0);
+clinic_audit_record('Logout', 'User logged out', 'user', $logoutUid > 0 ? $logoutUid : null, $logoutUid > 0 ? $logoutUid : null);
 
 $_SESSION = [];
 if (ini_get('session.use_cookies')) {

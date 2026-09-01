@@ -69,9 +69,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create_menu') {
         $name   = trim($_POST['menu_name'] ?? '');
         $icon   = trim($_POST['icon'] ?? '');
-        $group  = trim($_POST['menu_group'] ?? '');
         $status = ($_POST['status'] ?? 'active') === 'inactive' ? 'inactive' : 'active';
-        $err    = $co->adminCreateMenu($name, $icon, $group, $status);
+        $err    = $co->adminCreateMenu($name, $icon, $status);
         if ($err !== null) {
             $flash     = $err;
             $flashType = 'danger';
@@ -85,9 +84,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id     = (int) ($_POST['menu_id'] ?? 0);
         $name   = trim($_POST['menu_name'] ?? '');
         $icon   = trim($_POST['icon'] ?? '');
-        $group  = trim($_POST['menu_group'] ?? '');
         $status = ($_POST['status'] ?? 'active') === 'inactive' ? 'inactive' : 'active';
-        $err    = $co->adminUpdateMenu($id, $name, $icon, $group, $status);
+        $err    = $co->adminUpdateMenu($id, $name, $icon, $status);
         if ($err !== null) {
             $flash     = $err;
             $flashType = 'danger';
@@ -112,9 +110,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create_sub') {
         $menuId = (int) ($_POST['menu_id'] ?? 0);
         $name   = trim($_POST['submenu_name'] ?? '');
+        $icon   = trim($_POST['menu_icon'] ?? '');
         $url    = trim($_POST['menu_url'] ?? '');
         $status = ($_POST['status'] ?? 'active') === 'inactive' ? 'inactive' : 'active';
-        $err    = $co->adminCreateSubmenu($menuId, $name, $url, $status);
+        $err    = $co->adminCreateSubmenu($menuId, $name, $icon, $url, $status);
         if ($err !== null) {
             $flash     = $err;
             $flashType = 'danger';
@@ -128,9 +127,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $sid    = (int) ($_POST['submenu_id'] ?? 0);
         $menuId = (int) ($_POST['menu_id'] ?? 0);
         $name   = trim($_POST['submenu_name'] ?? '');
+        $icon   = trim($_POST['menu_icon'] ?? '');
         $url    = trim($_POST['menu_url'] ?? '');
         $status = ($_POST['status'] ?? 'active') === 'inactive' ? 'inactive' : 'active';
-        $err    = $co->adminUpdateSubmenu($sid, $menuId, $name, $url, $status);
+        $err    = $co->adminUpdateSubmenu($sid, $menuId, $name, $icon, $url, $status);
         if ($err !== null) {
             $flash     = $err;
             $flashType = 'danger';
@@ -315,7 +315,6 @@ $countSubList = count($submenues);
 											<th style="width:4.5rem;">ID</th>
 											<th>Name</th>
 											<th>Icon</th>
-											<th>Group</th>
 											<th style="width:6.5rem;">Status</th>
 											<th style="width:5rem;">Order</th>
 											<th class="text-end pe-3" style="width:7.5rem;">Actions</th>
@@ -330,7 +329,6 @@ $countSubList = count($submenues);
 											<td class="td-mono text-muted">#<?php echo (int) $m['menu_id']; ?></td>
 											<td class="fw-semibold"><?php echo htmlspecialchars($m['menu_name']); ?></td>
 											<td class="td-mono text-body-secondary"><span class="text-body"><?php echo htmlspecialchars($m['icon'] ?? '—'); ?></span></td>
-											<td><?php echo $m['menu_group'] !== null && (string) $m['menu_group'] !== '' ? htmlspecialchars($m['menu_group']) : '<span class="text-muted">—</span>'; ?></td>
 											<td>
 												<?php if (($m['status'] ?? '') === 'active'): ?>
 												<span class="badge erp-badge text-bg-success">Active</span>
@@ -345,7 +343,6 @@ $countSubList = count($submenues);
 														data-id="<?php echo (int) $m['menu_id']; ?>"
 														data-name="<?php echo htmlspecialchars($m['menu_name'], ENT_QUOTES, 'UTF-8'); ?>"
 														data-icon="<?php echo htmlspecialchars($m['icon'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
-														data-group="<?php echo htmlspecialchars($m['menu_group'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
 														data-status="<?php echo htmlspecialchars($m['status'] ?? 'active', ENT_QUOTES, 'UTF-8'); ?>">
 														<i class="ti ti-pencil"></i>
 													</button>
@@ -418,6 +415,7 @@ $countSubList = count($submenues);
 											<?php endif; ?>
 											<th style="width:4.5rem;">ID</th>
 											<th>Label</th>
+												<th style="width:6rem;">Icon</th>
 											<th>URL</th>
 											<th style="width:6.5rem;">Status</th>
 											<th style="width:5rem;">Order</th>
@@ -437,6 +435,7 @@ $countSubList = count($submenues);
 											<?php endif; ?>
 											<td class="td-mono text-muted">#<?php echo (int) $s['submenu_id']; ?></td>
 											<td class="fw-semibold"><?php echo htmlspecialchars($s['submenu_name']); ?></td>
+												<td class="td-mono text-body-secondary"><?php echo ($s['menu_icon'] ?? '') !== '' ? '<i class="' . htmlspecialchars($s['menu_icon']) . '"></i> ' . htmlspecialchars($s['menu_icon']) : '<span class="text-muted">—</span>'; ?></td>
 											<td class="td-mono text-body"><span class="text-body-secondary"><?php echo htmlspecialchars($s['menu_url']); ?></span></td>
 											<td>
 												<?php if (($s['status'] ?? '') === 'active'): ?>
@@ -452,13 +451,15 @@ $countSubList = count($submenues);
 														data-id="<?php echo (int) $s['submenu_id']; ?>"
 														data-menu="<?php echo (int) $s['menu_id']; ?>"
 														data-name="<?php echo htmlspecialchars($s['submenu_name'], ENT_QUOTES, 'UTF-8'); ?>"
+												data-icon="<?php echo htmlspecialchars($s['menu_icon'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
 														data-url="<?php echo htmlspecialchars($s['menu_url'], ENT_QUOTES, 'UTF-8'); ?>"
 														data-status="<?php echo htmlspecialchars($s['status'] ?? 'active', ENT_QUOTES, 'UTF-8'); ?>">
 														<i class="ti ti-pencil"></i>
 													</button>
 													<button type="button" class="btn btn-sm btn-outline-danger btn-icon btn-delete-sub" title="Delete"
 														data-id="<?php echo (int) $s['submenu_id']; ?>"
-														data-name="<?php echo htmlspecialchars($s['submenu_name'], ENT_QUOTES, 'UTF-8'); ?>">
+														data-name="<?php echo htmlspecialchars($s['submenu_name'], ENT_QUOTES, 'UTF-8'); ?>"
+												data-icon="<?php echo htmlspecialchars($s['menu_icon'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
 														<i class="ti ti-trash"></i>
 													</button>
 												</div>
@@ -494,11 +495,7 @@ $countSubList = count($submenues);
 						<label class="form-label">Icon (Tabler)</label>
 						<input type="text" name="icon" class="form-control" maxlength="50" placeholder="ti-layout-dashboard">
 					</div>
-					<div class="mb-3">
-						<label class="form-label">Group</label>
-						<input type="text" name="menu_group" class="form-control" maxlength="50" placeholder="Clinic, Finance…">
-					</div>
-					<div class="mb-0">
+<div class="mb-0">
 						<label class="form-label">Status</label>
 						<select name="status" class="form-select">
 							<option value="active">Active</option>
@@ -532,11 +529,7 @@ $countSubList = count($submenues);
 						<label class="form-label">Icon</label>
 						<input type="text" name="icon" id="edit_icon" class="form-control" maxlength="50">
 					</div>
-					<div class="mb-3">
-						<label class="form-label">Group</label>
-						<input type="text" name="menu_group" id="edit_group" class="form-control" maxlength="50">
-					</div>
-					<div class="mb-0">
+<div class="mb-0">
 						<label class="form-label">Status</label>
 						<select name="status" id="edit_status_menu" class="form-select">
 							<option value="active">Active</option>
@@ -553,7 +546,7 @@ $countSubList = count($submenues);
 	</div>
 
 	<div class="modal fade" id="modalConfirmDeleteMenu" tabindex="-1" aria-hidden="true">
-		<div class="modal-dialog modal-dialog-centered">
+		<div class="modal-dialog">
 			<div class="modal-content border-0 shadow-lg rounded-3 overflow-hidden">
 				<div class="modal-header border-0 bg-danger bg-opacity-10 text-danger">
 					<div class="d-flex align-items-center gap-2">
@@ -574,7 +567,7 @@ $countSubList = count($submenues);
 	</div>
 
 	<div class="modal fade" id="modalConfirmDeleteSub" tabindex="-1" aria-hidden="true">
-		<div class="modal-dialog modal-dialog-centered">
+		<div class="modal-dialog">
 			<div class="modal-content border-0 shadow-lg rounded-3 overflow-hidden">
 				<div class="modal-header border-0 bg-danger bg-opacity-10 text-danger">
 					<div class="d-flex align-items-center gap-2">
@@ -621,6 +614,10 @@ $countSubList = count($submenues);
 					<div class="mb-3">
 						<label class="form-label">Link label <span class="text-danger">*</span></label>
 						<input type="text" name="submenu_name" class="form-control" required maxlength="100">
+                    <div class="mb-3">
+                        <label class="form-label">Icon (optional)</label>
+                        <input type="text" name="menu_icon" class="form-control" maxlength="50" placeholder="ti-user">
+                    </div>
 					</div>
 					<div class="mb-3">
 						<label class="form-label">URL (PHP) <span class="text-danger">*</span></label>
@@ -663,6 +660,10 @@ $countSubList = count($submenues);
 					<div class="mb-3">
 						<label class="form-label">Name</label>
 						<input type="text" name="submenu_name" id="edit_name_sub" class="form-control" required maxlength="100">
+                    <div class="mb-3">
+                        <label class="form-label">Icon (optional)</label>
+                        <input type="text" name="menu_icon" id="edit_icon_sub" class="form-control" maxlength="50" placeholder="ti-user">
+                    </div>
 					</div>
 					<div class="mb-3">
 						<label class="form-label">URL</label>
@@ -775,7 +776,7 @@ $countSubList = count($submenues);
 				document.getElementById('edit_menu_id').value = btn.getAttribute('data-id') || '';
 				document.getElementById('edit_menu_name').value = btn.getAttribute('data-name') || '';
 				document.getElementById('edit_icon').value = btn.getAttribute('data-icon') || '';
-				document.getElementById('edit_group').value = btn.getAttribute('data-group') || '';
+				
 				document.getElementById('edit_status_menu').value = btn.getAttribute('data-status') === 'inactive' ? 'inactive' : 'active';
 				new bootstrap.Modal(document.getElementById('modalEditMenu')).show();
 			});
@@ -801,6 +802,7 @@ $countSubList = count($submenues);
 			btn.addEventListener('click', function() {
 				document.getElementById('edit_sub_id').value = btn.getAttribute('data-id') || '';
 				document.getElementById('edit_name_sub').value = btn.getAttribute('data-name') || '';
+				document.getElementById('edit_icon_sub').value = btn.getAttribute('data-icon') || '';
 				document.getElementById('edit_url_sub').value = btn.getAttribute('data-url') || '';
 				document.getElementById('edit_status_sub').value = btn.getAttribute('data-status') === 'inactive' ? 'inactive' : 'active';
 				var sm = document.getElementById('edit_sub_menu_id');

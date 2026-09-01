@@ -17,9 +17,46 @@ class Codes
         $this->db->set_charset('utf8mb4');
     }
 
+    /** Generic setting reader for system_settings; '' when not set / table missing. */
+    public function setting(string $key): string
+    {
+        try {
+            $stmt = $this->db->prepare('SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1');
+            if ($stmt === false) {
+                return '';
+            }
+            $stmt->bind_param('s', $key);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            return trim((string) ($row['setting_value'] ?? ''));
+        } catch (mysqli_sql_exception $e) {
+            return '';
+        }
+    }
+
+    /** System logo path/URL stored in system_settings; '' means no logo set yet. */
+    public function siteLogo(): string
+    {
+        return $this->setting('site_logo');
+    }
+
+    /** Clinic/system name shown in the login footer. */
+    public function siteName(): string
+    {
+        return $this->setting('site_name');
+    }
+
+    /** Footer tagline (e.g. "Powered by ..."). */
+    public function siteFooter(): string
+    {
+        return $this->setting('site_footer');
+    }
+
     public function listParentMenusAdmin(): array
     {
-        return $this->rows('SELECT menu_id, menu_name, icon, menu_group, status, sort_order FROM menues WHERE deleted = 0 ORDER BY sort_order ASC, menu_id ASC');
+        return $this->rows('SELECT menu_id, menu_name, icon, status, sort_order FROM menues WHERE deleted = 0 ORDER BY sort_order ASC, menu_id ASC');
     }
 
     public function listMenuesAdmin(): array
@@ -31,7 +68,7 @@ class Codes
     {
         if ($all || $menuId < 1) {
             return $this->rows(
-                'SELECT s.submenu_id, s.menu_id, m.menu_name, s.submenu_name, s.menu_url, s.status, s.sort_order
+                'SELECT s.submenu_id, s.menu_id, m.menu_name, s.submenu_name, s.menu_icon, s.menu_url, s.status, s.sort_order
                  FROM submenues s
                  LEFT JOIN menues m ON m.menu_id = s.menu_id
                  WHERE s.deleted = 0
@@ -40,7 +77,7 @@ class Codes
         }
 
         $stmt = $this->db->prepare(
-            'SELECT s.submenu_id, s.menu_id, m.menu_name, s.submenu_name, s.menu_url, s.status, s.sort_order
+            'SELECT s.submenu_id, s.menu_id, m.menu_name, s.submenu_name, s.menu_icon, s.menu_url, s.status, s.sort_order
              FROM submenues s
              LEFT JOIN menues m ON m.menu_id = s.menu_id
              WHERE s.deleted = 0 AND s.menu_id = ?
@@ -54,29 +91,29 @@ class Codes
         return $rows;
     }
 
-    public function adminCreateMenu(string $name, string $icon, string $group, string $status): ?string
+    public function adminCreateMenu(string $name, string $icon, string $status): ?string
     {
         if ($name === '') {
             return 'Menu name is required.';
         }
 
         $sort = $this->nextSort('menues', 'menu_id', 'deleted = 0');
-        $stmt = $this->db->prepare('INSERT INTO menues (menu_name, icon, menu_group, status, sort_order, deleted) VALUES (?, NULLIF(?, \'\'), NULLIF(?, \'\'), ?, ?, 0)');
-        $stmt->bind_param('ssssi', $name, $icon, $group, $status, $sort);
+        $stmt = $this->db->prepare('INSERT INTO menues (menu_name, icon, status, sort_order, deleted) VALUES (?, NULLIF(?, \'\'), ?, ?, 0)');
+        $stmt->bind_param('sssi', $name, $icon, $status, $sort);
         $stmt->execute();
         $stmt->close();
 
         return null;
     }
 
-    public function adminUpdateMenu(int $id, string $name, string $icon, string $group, string $status): ?string
+    public function adminUpdateMenu(int $id, string $name, string $icon, string $status): ?string
     {
         if ($id < 1 || $name === '') {
             return 'Valid menu and name are required.';
         }
 
-        $stmt = $this->db->prepare('UPDATE menues SET menu_name = ?, icon = NULLIF(?, \'\'), menu_group = NULLIF(?, \'\'), status = ? WHERE menu_id = ?');
-        $stmt->bind_param('ssssi', $name, $icon, $group, $status, $id);
+        $stmt = $this->db->prepare('UPDATE menues SET menu_name = ?, icon = NULLIF(?, \'\'), status = ? WHERE menu_id = ?');
+        $stmt->bind_param('sssi', $name, $icon, $status, $id);
         $stmt->execute();
         $stmt->close();
 
@@ -97,29 +134,29 @@ class Codes
         return null;
     }
 
-    public function adminCreateSubmenu(int $menuId, string $name, string $url, string $status): ?string
+    public function adminCreateSubmenu(int $menuId, string $name, string $icon, string $url, string $status): ?string
     {
         if ($menuId < 1 || $name === '' || $url === '') {
             return 'Parent menu, submenu name, and URL are required.';
         }
 
         $sort = $this->nextSort('submenues', 'submenu_id', 'deleted = 0 AND menu_id = ' . $menuId);
-        $stmt = $this->db->prepare('INSERT INTO submenues (menu_id, submenu_name, menu_url, status, sort_order, deleted) VALUES (?, ?, ?, ?, ?, 0)');
-        $stmt->bind_param('isssi', $menuId, $name, $url, $status, $sort);
+        $stmt = $this->db->prepare('INSERT INTO submenues (menu_id, submenu_name, menu_icon, menu_url, status, sort_order, deleted) VALUES (?, ?, NULLIF(?, \'\'), ?, ?, ?, 0)');
+        $stmt->bind_param('issssi', $menuId, $name, $icon, $url, $status, $sort);
         $stmt->execute();
         $stmt->close();
 
         return null;
     }
 
-    public function adminUpdateSubmenu(int $id, int $menuId, string $name, string $url, string $status): ?string
+    public function adminUpdateSubmenu(int $id, int $menuId, string $name, string $icon, string $url, string $status): ?string
     {
         if ($id < 1 || $menuId < 1 || $name === '' || $url === '') {
             return 'Valid submenu, parent menu, name, and URL are required.';
         }
 
-        $stmt = $this->db->prepare('UPDATE submenues SET menu_id = ?, submenu_name = ?, menu_url = ?, status = ? WHERE submenu_id = ?');
-        $stmt->bind_param('isssi', $menuId, $name, $url, $status, $id);
+        $stmt = $this->db->prepare('UPDATE submenues SET menu_id = ?, submenu_name = ?, menu_icon = NULLIF(?, \'\'), menu_url = ?, status = ? WHERE submenu_id = ?');
+        $stmt->bind_param('issssi', $menuId, $name, $icon, $url, $status, $id);
         $stmt->execute();
         $stmt->close();
 

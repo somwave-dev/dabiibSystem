@@ -787,7 +787,7 @@ clinic_page_start('Visit Workspace', 'One screen for clinical notes, lab, nursin
     }
 </style>
 <?php if ($isDoctorScoped): ?>
-<div class="alert alert-info d-flex align-items-center gap-2">
+<div class="alert alert-info d-flex align-items-center gap-2 border border-info">
     <i class="ti ti-stethoscope"></i>
     <div>
         You are viewing only appointments and visits assigned to
@@ -845,7 +845,7 @@ clinic_page_start('Visit Workspace', 'One screen for clinical notes, lab, nursin
                 <div>
                     <h6 class="mb-0"><i class="ti ti-history me-1"></i> Patient history</h6>
                     <div class="small text-muted">Visits, labs, payments, and pharmacy — newest first.</div>
-                    <div class="small text-muted" lang="so">Taariikhda bukaanka (dhakhaatiirtu waxay arki karaan).</div>
+                    <div class="small text-muted">Patient history (visible to doctors).</div>
                 </div>
                 <?php if ($patientHistoryProfile): ?>
                 <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#visitPatientProfileModal">
@@ -886,7 +886,7 @@ clinic_page_start('Visit Workspace', 'One screen for clinical notes, lab, nursin
             </div>
         </div>
         <?php elseif ($patientIdForWorkspace > 0 && $isDoctorScoped): ?>
-        <div class="alert alert-warning py-2 small mb-3">
+        <div class="alert alert-warning py-2 small mb-3 border border-warning">
             Patient history is hidden because this patient is not linked to your appointments or visits.
         </div>
         <?php endif; ?>
@@ -1022,7 +1022,7 @@ clinic_page_start('Visit Workspace', 'One screen for clinical notes, lab, nursin
             <div class="modal-header border-0 pb-0 align-items-start">
                 <div>
                     <h5 class="modal-title fw-bold" id="visitPatientProfileModalLabel">Patient profile</h5>
-                    <div class="small text-muted" lang="so">Akoonka bukaanka — modal (bog kale ma lahan).</div>
+                    <div class="small text-muted">Patient profile — modal (no separate page).</div>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -1163,7 +1163,7 @@ clinic_page_start('Visit Workspace', 'One screen for clinical notes, lab, nursin
         <div class="modal-body">
             <input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="create_visit">
             <?php if ($selectedAppointment > 0): ?>
-            <div class="alert alert-info py-2">This visit is linked to appointment #<?php echo (int) $selectedAppointment; ?>. Creating the visit will mark that appointment as completed.</div>
+            <div class="alert alert-info py-2 border border-info">This visit is linked to appointment #<?php echo (int) $selectedAppointment; ?>. Creating the visit will mark that appointment as completed.</div>
             <?php endif; ?>
             <div class="mb-3"><label class="form-label">Patient</label><select class="form-select" name="Patient_ID" required><?php clinic_select_options($patients, 'Patient_ID', 'Full_Name', $selectedPatient); ?></select></div>
             <?php if ($isDoctorScoped): ?>
@@ -1197,8 +1197,8 @@ clinic_page_start('Visit Workspace', 'One screen for clinical notes, lab, nursin
                 <input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>">
                 <input type="hidden" name="action" value="add_lab" id="labRequestAction">
                 <input type="hidden" name="Visit_ID" value="<?php echo (int) $visitId; ?>">
-                <div class="alert alert-info d-none" id="labManageHint"></div>
-                <div class="alert alert-danger d-none" id="labDeletedPreview">
+                <div class="alert alert-info d-none border border-info" id="labManageHint"></div>
+                <div class="alert alert-danger d-none border border-danger" id="labDeletedPreview">
                     <strong>Deleted labs</strong>
                     <div class="small mt-1" id="labDeletedList"></div>
                 </div>
@@ -1323,7 +1323,7 @@ clinic_page_start('Visit Workspace', 'One screen for clinical notes, lab, nursin
                 <input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>">
                 <input type="hidden" name="action" value="bulk_delete_lab">
                 <input type="hidden" name="Visit_ID" value="<?php echo (int) $visitId; ?>">
-                <div class="alert alert-danger">
+                <div class="alert alert-danger border border-danger">
                     Delete <strong id="bulkDeleteLabCount">0</strong> selected pending lab request(s)?
                     <div class="small mt-1" id="bulkDeleteLabNames"></div>
                 </div>

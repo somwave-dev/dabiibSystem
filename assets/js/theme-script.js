@@ -172,8 +172,11 @@ class ThemeCustomizer {
 		this.initConfig(), this.initSwitchListener(), this.initWindowSize(), this._adjustLayout(), this.setSwitchFromConfig()
 	}
 }
-document.addEventListener("DOMContentLoaded", function(e) {
-	let themesetting = `
+document.addEventListener("DOMContentLoaded", function() {
+	(new ThemeCustomizer).init();
+});
+/* Theme Customizer UI (floating gear button + panel) has been removed.
+let themesetting = `
 	<div class="sidebar-contact">
     	<div class="toggle-theme"  data-bs-toggle="offcanvas" data-bs-target="#theme-settings-offcanvas"><i class="ti ti-settings"></i></div>
     </div>
@@ -539,4 +542,5 @@ document.addEventListener("DOMContentLoaded", function(e) {
 	}
 	(new ThemeCustomizer).init()
 });
+*/
 

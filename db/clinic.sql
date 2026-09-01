@@ -134,22 +134,41 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_doctors_delete` (IN `p_Doctor_ID
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_doctors_get` (IN `p_Doctor_ID` INT)   BEGIN
-  SELECT `Doctor_ID`, `Full_Name`, `Specialization`, `Consultation_Fee`, `User_ID` FROM `doctors` WHERE `Doctor_ID` = p_Doctor_ID;
+  SELECT `Doctor_ID`, `Full_Name`, `Specialization`, `Consultation_Fee`, `User_ID`, `image` FROM `doctors` WHERE `Doctor_ID` = p_Doctor_ID;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_doctors_list` ()   BEGIN
-  SELECT d.`Doctor_ID`, d.`Full_Name`, d.`Specialization`, d.`Consultation_Fee`, d.`User_ID`, u.`Username`
+  SELECT d.`Doctor_ID`, d.`Full_Name`, d.`Specialization`, d.`Consultation_Fee`, d.`User_ID`, u.`Username`, d.`image`
   FROM `doctors` d
   LEFT JOIN `users` u ON u.`User_ID` = d.`User_ID`
   ORDER BY d.`Doctor_ID` DESC;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_doctors_save` (IN `p_Doctor_ID` INT, IN `p_Full_Name` VARCHAR(100), IN `p_Specialization` VARCHAR(100), IN `p_Consultation_Fee` DECIMAL(10,2), IN `p_User_ID` INT)   BEGIN
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_doctors_save` (IN `p_Doctor_ID` INT, IN `p_Full_Name` VARCHAR(100), IN `p_Specialization` VARCHAR(100), IN `p_Consultation_Fee` DECIMAL(10,2), IN `p_User_ID` INT, IN `p_Image` VARCHAR(100))   BEGIN
   IF p_Doctor_ID IS NULL OR p_Doctor_ID = 0 THEN
-    INSERT INTO `doctors` (`Full_Name`, `Specialization`, `Consultation_Fee`, `User_ID`) VALUES (p_Full_Name, NULLIF(p_Specialization, ''), COALESCE(p_Consultation_Fee, 0.00), p_User_ID);
+    INSERT INTO `doctors` (`Full_Name`, `Specialization`, `Consultation_Fee`, `User_ID`, `image`) VALUES (p_Full_Name, NULLIF(p_Specialization, ''), COALESCE(p_Consultation_Fee, 0.00), p_User_ID, NULLIF(p_Image, ''));
   ELSE
-    UPDATE `doctors` SET `Full_Name` = p_Full_Name, `Specialization` = NULLIF(p_Specialization, ''), `Consultation_Fee` = COALESCE(p_Consultation_Fee, 0.00), `User_ID` = p_User_ID WHERE `Doctor_ID` = p_Doctor_ID;
+    UPDATE `doctors` SET `Full_Name` = p_Full_Name, `Specialization` = NULLIF(p_Specialization, ''), `Consultation_Fee` = COALESCE(p_Consultation_Fee, 0.00), `User_ID` = p_User_ID, `image` = NULLIF(p_Image, '') WHERE `Doctor_ID` = p_Doctor_ID;
   END IF;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_doctors_profile` (IN `p_Doctor_ID` INT)   BEGIN
+  SELECT d.`Doctor_ID`, d.`Full_Name`, d.`Specialization`, d.`Consultation_Fee`, d.`User_ID`, d.`image`,
+         u.`Username`, u.`email` AS `User_Email`, u.`image` AS `User_Image`,
+         (SELECT COUNT(*) FROM `appointments` a WHERE a.`Doctor_ID` = d.`Doctor_ID`) AS `appointment_count`,
+         (SELECT COUNT(*) FROM `visits` v WHERE v.`Doctor_ID` = d.`Doctor_ID`) AS `visit_count`,
+         (SELECT COUNT(DISTINCT v.`Patient_ID`) FROM `visits` v WHERE v.`Doctor_ID` = d.`Doctor_ID`) AS `patient_count`
+  FROM `doctors` d
+  LEFT JOIN `users` u ON u.`User_ID` = d.`User_ID`
+  WHERE d.`Doctor_ID` = p_Doctor_ID AND d.`deleted` = 0;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_doctor_appointments` (IN `p_Doctor_ID` INT)   BEGIN
+  SELECT a.`Appointment_ID`, a.`Appointment_Date`, a.`Status`, p.`Full_Name` AS `Patient_Name`
+  FROM `appointments` a
+  LEFT JOIN `patients` p ON p.`Patient_ID` = a.`Patient_ID`
+  WHERE a.`Doctor_ID` = p_Doctor_ID
+  ORDER BY a.`Appointment_Date` DESC;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_lab_results_delete` (IN `p_Result_ID` INT)   BEGIN
@@ -229,18 +248,18 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_menues_delete` (IN `p_menu_id` I
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_menues_get` (IN `p_menu_id` INT)   BEGIN
-  SELECT `menu_id`, `menu_name`, `icon`, `menu_group`, `status`, `sort_order` FROM `menues` WHERE `menu_id` = p_menu_id AND `deleted` = 0;
+  SELECT `menu_id`, `menu_name`, `icon`, `status`, `sort_order` FROM `menues` WHERE `menu_id` = p_menu_id AND `deleted` = 0;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_menues_list` ()   BEGIN
-  SELECT `menu_id`, `menu_name`, `icon`, `menu_group`, `status`, `sort_order` FROM `menues` WHERE `deleted` = 0 ORDER BY `sort_order` ASC, `menu_id` DESC;
+  SELECT `menu_id`, `menu_name`, `icon`, `status`, `sort_order` FROM `menues` WHERE `deleted` = 0 ORDER BY `sort_order` ASC, `menu_id` DESC;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_menues_save` (IN `p_menu_id` INT, IN `p_menu_name` VARCHAR(100), IN `p_icon` VARCHAR(50), IN `p_menu_group` VARCHAR(50), IN `p_status` VARCHAR(20), IN `p_sort_order` INT)   BEGIN
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_menues_save` (IN `p_menu_id` INT, IN `p_menu_name` VARCHAR(100), IN `p_icon` VARCHAR(50), IN `p_status` VARCHAR(20), IN `p_sort_order` INT)   BEGIN
   IF p_menu_id IS NULL OR p_menu_id = 0 THEN
-    INSERT INTO `menues` (`menu_name`, `icon`, `menu_group`, `status`, `sort_order`, `deleted`) VALUES (p_menu_name, NULLIF(p_icon, ''), NULLIF(p_menu_group, ''), COALESCE(NULLIF(p_status, ''), 'active'), COALESCE(p_sort_order, 0), 0);
+    INSERT INTO `menues` (`menu_name`, `icon`, `status`, `sort_order`, `deleted`) VALUES (p_menu_name, NULLIF(p_icon, ''), COALESCE(NULLIF(p_status, ''), 'active'), COALESCE(p_sort_order, 0), 0);
   ELSE
-    UPDATE `menues` SET `menu_name` = p_menu_name, `icon` = NULLIF(p_icon, ''), `menu_group` = NULLIF(p_menu_group, ''), `status` = COALESCE(NULLIF(p_status, ''), 'active'), `sort_order` = COALESCE(p_sort_order, 0) WHERE `menu_id` = p_menu_id;
+    UPDATE `menues` SET `menu_name` = p_menu_name, `icon` = NULLIF(p_icon, ''), `status` = COALESCE(NULLIF(p_status, ''), 'active'), `sort_order` = COALESCE(p_sort_order, 0) WHERE `menu_id` = p_menu_id;
   END IF;
 END$$
 
@@ -295,26 +314,26 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patients_delete` (IN `p_Patient_
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patients_get` (IN `p_Patient_ID` INT)   BEGIN
-  SELECT `Patient_ID`, `Full_Name`, `Phone_Number`, `Sex`, `Age_Group`, `Patient_Type`, `Guarantor_ID`, `Relationship`, `Credit_Limit`, `Current_Balance`, `Created_At` FROM `patients` WHERE `Patient_ID` = p_Patient_ID;
+  SELECT `Patient_ID`, `Full_Name`, `Phone_Number`, `Sex`, `Age_Group`, `Patient_Type`, `Guarantor_ID`, `Relationship`, `Credit_Limit`, `Current_Balance`, `image`, `Created_At` FROM `patients` WHERE `Patient_ID` = p_Patient_ID;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patients_list` ()   BEGIN
-  SELECT p.`Patient_ID`, p.`Full_Name`, p.`Phone_Number`, p.`Sex`, p.`Age_Group`, p.`Patient_Type`, p.`Guarantor_ID`, g.`Full_Name` AS `Guarantor_Name`, p.`Relationship`, p.`Credit_Limit`, p.`Current_Balance`, p.`Created_At`
+  SELECT p.`Patient_ID`, p.`Full_Name`, p.`Phone_Number`, p.`Sex`, p.`Age_Group`, p.`Patient_Type`, p.`Guarantor_ID`, g.`Full_Name` AS `Guarantor_Name`, p.`Relationship`, p.`Credit_Limit`, p.`Current_Balance`, p.`image`, p.`Created_At`
   FROM `patients` p
   LEFT JOIN `patients` g ON g.`Patient_ID` = p.`Guarantor_ID`
   ORDER BY p.`Patient_ID` DESC;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patients_save` (IN `p_Patient_ID` INT, IN `p_Full_Name` VARCHAR(100), IN `p_Phone_Number` VARCHAR(20), IN `p_Sex` VARCHAR(10), IN `p_Age_Group` VARCHAR(10), IN `p_Patient_Type` VARCHAR(20), IN `p_Guarantor_ID` INT, IN `p_Relationship` VARCHAR(20), IN `p_Credit_Limit` DECIMAL(10,2), IN `p_Current_Balance` DECIMAL(10,2))   BEGIN
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patients_save` (IN `p_Patient_ID` INT, IN `p_Full_Name` VARCHAR(100), IN `p_Phone_Number` VARCHAR(20), IN `p_Sex` VARCHAR(10), IN `p_Age_Group` VARCHAR(10), IN `p_Patient_Type` VARCHAR(20), IN `p_Guarantor_ID` INT, IN `p_Relationship` VARCHAR(20), IN `p_Credit_Limit` DECIMAL(10,2), IN `p_Current_Balance` DECIMAL(10,2), IN `p_Image` VARCHAR(100))   BEGIN
   IF p_Patient_ID IS NULL OR p_Patient_ID = 0 THEN
-    INSERT INTO `patients` (`Full_Name`, `Phone_Number`, `Sex`, `Age_Group`, `Patient_Type`, `Guarantor_ID`, `Relationship`, `Credit_Limit`, `Current_Balance`) VALUES (p_Full_Name, NULLIF(p_Phone_Number, ''), COALESCE(NULLIF(p_Sex, ''), 'Male'), COALESCE(NULLIF(p_Age_Group, ''), 'Adult'), COALESCE(NULLIF(p_Patient_Type, ''), 'Maalinle'), p_Guarantor_ID, COALESCE(NULLIF(p_Relationship, ''), 'Self'), COALESCE(p_Credit_Limit, 0.00), COALESCE(p_Current_Balance, 0.00));
+    INSERT INTO `patients` (`Full_Name`, `Phone_Number`, `Sex`, `Age_Group`, `Patient_Type`, `Guarantor_ID`, `Relationship`, `Credit_Limit`, `Current_Balance`, `image`) VALUES (p_Full_Name, NULLIF(p_Phone_Number, ''), COALESCE(NULLIF(p_Sex, ''), 'Male'), COALESCE(NULLIF(p_Age_Group, ''), 'Adult'), COALESCE(NULLIF(p_Patient_Type, ''), 'Walk-in'), p_Guarantor_ID, COALESCE(NULLIF(p_Relationship, ''), 'Self'), COALESCE(p_Credit_Limit, 0.00), COALESCE(p_Current_Balance, 0.00), NULLIF(p_Image, ''));
   ELSE
-    UPDATE `patients` SET `Full_Name` = p_Full_Name, `Phone_Number` = NULLIF(p_Phone_Number, ''), `Sex` = COALESCE(NULLIF(p_Sex, ''), 'Male'), `Age_Group` = COALESCE(NULLIF(p_Age_Group, ''), 'Adult'), `Patient_Type` = COALESCE(NULLIF(p_Patient_Type, ''), 'Maalinle'), `Guarantor_ID` = p_Guarantor_ID, `Relationship` = COALESCE(NULLIF(p_Relationship, ''), 'Self'), `Credit_Limit` = COALESCE(p_Credit_Limit, 0.00), `Current_Balance` = COALESCE(p_Current_Balance, 0.00) WHERE `Patient_ID` = p_Patient_ID;
+    UPDATE `patients` SET `Full_Name` = p_Full_Name, `Phone_Number` = NULLIF(p_Phone_Number, ''), `Sex` = COALESCE(NULLIF(p_Sex, ''), 'Male'), `Age_Group` = COALESCE(NULLIF(p_Age_Group, ''), 'Adult'), `Patient_Type` = COALESCE(NULLIF(p_Patient_Type, ''), 'Walk-in'), `Guarantor_ID` = p_Guarantor_ID, `Relationship` = COALESCE(NULLIF(p_Relationship, ''), 'Self'), `Credit_Limit` = COALESCE(p_Credit_Limit, 0.00), `Current_Balance` = COALESCE(p_Current_Balance, 0.00), `image` = NULLIF(p_Image, '') WHERE `Patient_ID` = p_Patient_ID;
   END IF;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patient_profile` (IN `p_Patient_ID` INT)   BEGIN
-  SELECT p.`Patient_ID`, p.`Full_Name`, p.`Phone_Number`, p.`Sex`, p.`Age_Group`, p.`Patient_Type`, p.`Guarantor_ID`, g.`Full_Name` AS `Guarantor_Name`, p.`Relationship`, p.`Credit_Limit`, p.`Current_Balance`, p.`Created_At`,
+  SELECT p.`Patient_ID`, p.`Full_Name`, p.`Phone_Number`, p.`Sex`, p.`Age_Group`, p.`Patient_Type`, p.`Guarantor_ID`, g.`Full_Name` AS `Guarantor_Name`, p.`Relationship`, p.`Credit_Limit`, p.`Current_Balance`, p.`image`, p.`Created_At`,
     (SELECT COUNT(*) FROM `visits` v WHERE v.`Patient_ID` = p.`Patient_ID`) AS `visit_count`,
     (SELECT COUNT(*) FROM `appointments` a WHERE a.`Patient_ID` = p.`Patient_ID`) AS `appointment_count`,
     (SELECT COUNT(*) FROM `payments` py WHERE py.`Patient_ID` = p.`Patient_ID`) AS `payment_count`,
@@ -323,6 +342,24 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patient_profile` (IN `p_Patient_
   FROM `patients` p
   LEFT JOIN `patients` g ON g.`Patient_ID` = p.`Guarantor_ID`
   WHERE p.`Patient_ID` = p_Patient_ID;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patient_appointments` (IN `p_Patient_ID` INT)   BEGIN
+  SELECT a.`Appointment_ID`, a.`Appointment_Date`, a.`Status`,
+         d.`Full_Name` AS `Doctor_Name`, d.`Specialization` AS `Doctor_Specialization`
+  FROM `appointments` a
+  LEFT JOIN `doctors` d ON d.`Doctor_ID` = a.`Doctor_ID`
+  WHERE a.`Patient_ID` = p_Patient_ID
+  ORDER BY a.`Appointment_Date` DESC;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patient_payments` (IN `p_Patient_ID` INT)   BEGIN
+  SELECT py.`Payment_ID`, py.`Amount`, py.`Payment_Method`, py.`Transaction_Ref`, py.`Payment_Date`,
+         a.`Account_Name`
+  FROM `payments` py
+  LEFT JOIN `accounts` a ON a.`Account_ID` = py.`Account_ID`
+  WHERE py.`Patient_ID` = p_Patient_ID
+  ORDER BY py.`Payment_Date` DESC;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patient_timeline` (IN `p_Patient_ID` INT)   BEGIN
@@ -483,22 +520,40 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_delete` (IN `p_Staff_ID` I
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_get` (IN `p_Staff_ID` INT)   BEGIN
-  SELECT `Staff_ID`, `User_ID`, `Full_Name`, `Phone_Number`, `Credential_Or_Badge`, `Notes`, `status`, `Created_At` FROM `staff` WHERE `Staff_ID` = p_Staff_ID;
+  SELECT s.`Staff_ID`, s.`User_ID`, u.`Username`,
+         COALESCE(s.`Role_ID`, u.`Role_ID`) AS `Role_ID`,
+         COALESCE(rs.`Role_Name`, r.`Role_Name`) AS `Role_Name`,
+         s.`Full_Name`, s.`Phone_Number`, s.`Email`,
+         s.`Credential_Or_Badge`, s.`Credential_Type`,
+         d.`Doctor_ID`, d.`Specialization`, d.`Consultation_Fee`,
+         COALESCE(d.`image`, u.`image`) AS `Image`,
+         s.`Notes`, s.`status`, s.`Created_At`, u.`last_login` AS `Last_Login`
+  FROM `staff` s
+  LEFT JOIN `users` u ON u.`User_ID` = s.`User_ID` AND u.`deleted` = 0
+  LEFT JOIN `roles` r ON r.`Role_ID` = u.`Role_ID`
+  LEFT JOIN `roles` rs ON rs.`Role_ID` = s.`Role_ID`
+  LEFT JOIN `doctors` d ON d.`Staff_ID` = s.`Staff_ID` OR (d.`Staff_ID` IS NULL AND d.`User_ID` = s.`User_ID`)
+  WHERE s.`Staff_ID` = p_Staff_ID;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_list` ()   BEGIN
-  SELECT s.`Staff_ID`, s.`User_ID`, u.`Username`, u.`Role_ID`, r.`Role_Name`, s.`Full_Name`, s.`Phone_Number`,
-         s.`Credential_Or_Badge`,
+  SELECT s.`Staff_ID`, s.`User_ID`, u.`Username`,
+         COALESCE(s.`Role_ID`, u.`Role_ID`) AS `Role_ID`,
+         COALESCE(rs.`Role_Name`, r.`Role_Name`) AS `Role_Name`,
+         s.`Full_Name`, s.`Phone_Number`, s.`Email`,
+         s.`Credential_Or_Badge`, s.`Credential_Type`,
          d.`Doctor_ID`, d.`Specialization`, d.`Consultation_Fee`,
-         s.`Notes`, s.`status`, s.`Created_At`
+         COALESCE(d.`image`, u.`image`) AS `Image`,
+         s.`Notes`, s.`status`, s.`Created_At`, u.`last_login` AS `Last_Login`
   FROM `staff` s
-  INNER JOIN `users` u ON u.`User_ID` = s.`User_ID` AND u.`deleted` = 0
+  LEFT JOIN `users` u ON u.`User_ID` = s.`User_ID` AND u.`deleted` = 0
   LEFT JOIN `roles` r ON r.`Role_ID` = u.`Role_ID`
-  LEFT JOIN `doctors` d ON d.`User_ID` = s.`User_ID`
-  ORDER BY r.`Role_Name` ASC, s.`Full_Name` ASC;
+  LEFT JOIN `roles` rs ON rs.`Role_ID` = s.`Role_ID`
+  LEFT JOIN `doctors` d ON d.`Staff_ID` = s.`Staff_ID` OR (d.`Staff_ID` IS NULL AND d.`User_ID` = s.`User_ID`)
+  ORDER BY COALESCE(rs.`Role_Name`, r.`Role_Name`) ASC, s.`Full_Name` ASC;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_save` (IN `p_Staff_ID` INT, IN `p_User_ID` INT, IN `p_Full_Name` VARCHAR(100), IN `p_Phone_Number` VARCHAR(50), IN `p_Credential_Or_Badge` VARCHAR(120), IN `p_Notes` TEXT, IN `p_status` VARCHAR(20))   BEGIN
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_save` (IN `p_Staff_ID` INT, IN `p_User_ID` INT, IN `p_Role_ID` INT, IN `p_Full_Name` VARCHAR(100), IN `p_Phone_Number` VARCHAR(50), IN `p_Email` VARCHAR(100), IN `p_Credential_Or_Badge` VARCHAR(120), IN `p_Credential_Type` VARCHAR(60), IN `p_Notes` TEXT, IN `p_status` VARCHAR(20))   BEGIN
   IF p_User_ID IS NOT NULL AND p_User_ID <> 0 THEN
     IF EXISTS (
       SELECT 1 FROM `staff`
@@ -506,14 +561,65 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_save` (IN `p_Staff_ID` INT
         AND `Staff_ID` <> COALESCE(NULLIF(p_Staff_ID, 0), -1)
     ) THEN
       SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Hal akoon user ah hal shaqaale ayuu kaliya ku diiwan galmayaa.';
+        SET MESSAGE_TEXT = 'One user account can only be linked to one staff member.';
+    END IF;
+  END IF;
+  IF p_Email IS NOT NULL AND TRIM(p_Email) <> '' THEN
+    IF EXISTS (
+      SELECT 1 FROM `staff`
+      WHERE `Email` = p_Email
+        AND `Staff_ID` <> COALESCE(NULLIF(p_Staff_ID, 0), -1)
+    ) THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'This email address is already used by another staff member.';
+    END IF;
+  END IF;
+  IF p_Phone_Number IS NOT NULL AND TRIM(p_Phone_Number) <> '' THEN
+    IF EXISTS (
+      SELECT 1 FROM `staff`
+      WHERE `Phone_Number` = p_Phone_Number
+        AND `Staff_ID` <> COALESCE(NULLIF(p_Staff_ID, 0), -1)
+    ) THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'This phone number is already used by another staff member.';
     END IF;
   END IF;
   IF p_Staff_ID IS NULL OR p_Staff_ID = 0 THEN
-    INSERT INTO `staff` (`User_ID`, `Full_Name`, `Phone_Number`, `Credential_Or_Badge`, `Notes`, `status`) VALUES (p_User_ID, p_Full_Name, NULLIF(p_Phone_Number, ''), NULLIF(p_Credential_Or_Badge, ''), NULLIF(p_Notes, ''), COALESCE(NULLIF(p_status, ''), 'active'));
+    INSERT INTO `staff` (`User_ID`, `Role_ID`, `Full_Name`, `Phone_Number`, `Email`, `Credential_Or_Badge`, `Credential_Type`, `Notes`, `status`) VALUES (NULLIF(p_User_ID, 0), NULLIF(p_Role_ID, 0), p_Full_Name, NULLIF(p_Phone_Number, ''), NULLIF(p_Email, ''), NULLIF(p_Credential_Or_Badge, ''), NULLIF(p_Credential_Type, ''), NULLIF(p_Notes, ''), COALESCE(NULLIF(p_status, ''), 'active'));
   ELSE
-    UPDATE `staff` SET `User_ID` = p_User_ID, `Full_Name` = p_Full_Name, `Phone_Number` = NULLIF(p_Phone_Number, ''), `Credential_Or_Badge` = NULLIF(p_Credential_Or_Badge, ''), `Notes` = NULLIF(p_Notes, ''), `status` = COALESCE(NULLIF(p_status, ''), 'active') WHERE `Staff_ID` = p_Staff_ID;
+    UPDATE `staff` SET `User_ID` = NULLIF(p_User_ID, 0), `Role_ID` = NULLIF(p_Role_ID, 0), `Full_Name` = p_Full_Name, `Phone_Number` = NULLIF(p_Phone_Number, ''), `Email` = NULLIF(p_Email, ''), `Credential_Or_Badge` = NULLIF(p_Credential_Or_Badge, ''), `Credential_Type` = NULLIF(p_Credential_Type, ''), `Notes` = NULLIF(p_Notes, ''), `status` = COALESCE(NULLIF(p_status, ''), 'active') WHERE `Staff_ID` = p_Staff_ID;
   END IF;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_without_users` ()   BEGIN
+  SELECT s.`Staff_ID`, s.`Full_Name`
+  FROM `staff` s
+  WHERE s.`status` = 'active'
+    AND (s.`User_ID` IS NULL OR s.`User_ID` = 0)
+  ORDER BY s.`Full_Name` ASC;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_doctor_upsert_by_staff` (IN `p_Staff_ID` INT, IN `p_Full_Name` VARCHAR(100), IN `p_Specialization` VARCHAR(100), IN `p_Consultation_Fee` DECIMAL(10,2))   BEGIN
+  IF EXISTS (
+    SELECT 1 FROM `doctors`
+    WHERE `Staff_ID` = p_Staff_ID
+       OR (`Staff_ID` IS NULL AND `User_ID` = (SELECT `User_ID` FROM `staff` WHERE `Staff_ID` = p_Staff_ID))
+  ) THEN
+    UPDATE `doctors`
+    SET `Full_Name` = p_Full_Name, `Specialization` = NULLIF(p_Specialization, ''), `Consultation_Fee` = COALESCE(p_Consultation_Fee, 0.00), `Staff_ID` = p_Staff_ID
+    WHERE `Staff_ID` = p_Staff_ID
+       OR (`Staff_ID` IS NULL AND `User_ID` = (SELECT `User_ID` FROM `staff` WHERE `Staff_ID` = p_Staff_ID));
+  ELSE
+    INSERT INTO `doctors` (`Staff_ID`, `Full_Name`, `Specialization`, `Consultation_Fee`) VALUES (p_Staff_ID, p_Full_Name, NULLIF(p_Specialization, ''), COALESCE(p_Consultation_Fee, 0.00));
+  END IF;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_doctor_by_staff` (IN `p_Staff_ID` INT)   BEGIN
+  SELECT `Doctor_ID`, `Full_Name`, `Specialization`, `Consultation_Fee`, `User_ID`, `Staff_ID`, `image`
+  FROM `doctors`
+  WHERE `Staff_ID` = p_Staff_ID
+     OR (`Staff_ID` IS NULL AND `User_ID` = (SELECT `User_ID` FROM `staff` WHERE `Staff_ID` = p_Staff_ID))
+  LIMIT 1;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_submenues_delete` (IN `p_submenu_id` INT)   BEGIN
@@ -557,6 +663,27 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_users_list` ()   BEGIN
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_users_save` (IN `p_User_ID` INT, IN `p_Username` VARCHAR(50), IN `p_Password_Hash` VARCHAR(255), IN `p_Role_ID` INT, IN `p_email` VARCHAR(100), IN `p_image` VARCHAR(100), IN `p_status` VARCHAR(20))   BEGIN
+  IF p_Username IS NOT NULL AND TRIM(p_Username) <> '' THEN
+    IF EXISTS (
+      SELECT 1 FROM `users`
+      WHERE LOWER(TRIM(`Username`)) = LOWER(TRIM(p_Username))
+        AND `User_ID` <> COALESCE(NULLIF(p_User_ID, 0), -1)
+    ) THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'This username is already taken.';
+    END IF;
+  END IF;
+  IF p_email IS NOT NULL AND TRIM(p_email) <> '' THEN
+    IF EXISTS (
+      SELECT 1 FROM `users`
+      WHERE `email` = p_email
+        AND `User_ID` <> COALESCE(NULLIF(p_User_ID, 0), -1)
+        AND `deleted` = 0
+    ) THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'This email address is already used by another account.';
+    END IF;
+  END IF;
   IF p_User_ID IS NULL OR p_User_ID = 0 THEN
     INSERT INTO `users` (`Username`, `Password_Hash`, `Role_ID`, `email`, `image`, `status`, `deleted`) VALUES (p_Username, p_Password_Hash, p_Role_ID, NULLIF(p_email, ''), COALESCE(NULLIF(p_image, ''), 'default-user.png'), COALESCE(NULLIF(p_status, ''), 'active'), 0);
   ELSE
@@ -673,6 +800,29 @@ INSERT INTO `account_transfers` (`Transfer_ID`, `From_Account_ID`, `To_Account_I
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `audit_logs`
+--
+
+CREATE TABLE `audit_logs` (
+  `log_id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) DEFAULT NULL,
+  `username` varchar(50) DEFAULT NULL,
+  `action` varchar(100) NOT NULL,
+  `entity` varchar(50) DEFAULT NULL,
+  `entity_id` int(11) DEFAULT NULL,
+  `details` text DEFAULT NULL,
+  `ip_address` varchar(45) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`log_id`),
+  KEY `idx_audit_created` (`created_at`),
+  KEY `idx_audit_action` (`action`),
+  KEY `idx_audit_user` (`user_id`),
+  KEY `idx_audit_entity` (`entity`,`entity_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `appointments`
 --
 
@@ -708,9 +858,11 @@ INSERT INTO `appointments` (`Appointment_ID`, `Patient_ID`, `Doctor_ID`, `Appoin
 
 CREATE TABLE `doctors` (
   `Doctor_ID` int(11) NOT NULL,
+  `Staff_ID` int(11) DEFAULT NULL,
   `Full_Name` varchar(100) NOT NULL,
   `Specialization` varchar(100) DEFAULT NULL,
   `Consultation_Fee` decimal(10,2) DEFAULT 0.00,
+  `image` varchar(100) DEFAULT NULL,
   `User_ID` int(11) DEFAULT NULL,
   `deleted` tinyint(1) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -830,7 +982,6 @@ CREATE TABLE `menues` (
   `menu_id` int(11) NOT NULL,
   `menu_name` varchar(100) NOT NULL,
   `icon` varchar(50) DEFAULT NULL,
-  `menu_group` varchar(50) DEFAULT NULL,
   `status` enum('active','inactive') DEFAULT 'active',
   `sort_order` int(11) DEFAULT 0,
   `deleted` tinyint(1) DEFAULT 0
@@ -840,17 +991,21 @@ CREATE TABLE `menues` (
 -- Dumping data for table `menues`
 --
 
-INSERT INTO `menues` (`menu_id`, `menu_name`, `icon`, `menu_group`, `status`, `sort_order`, `deleted`) VALUES
-(1, 'Dashboard', 'ti-layout-dashboard', 'Command', 'active', 1, 0),
-(2, 'Patients & Appointments', 'ti-user-heart', 'Clinic Workflow', 'active', 2, 0),
-(3, 'Nursing', 'ti-stethoscope', 'Admin & Setup', 'active', 3, 0),
-(4, 'Laboratory', 'ti-microscope', 'Clinic Workflow', 'active', 4, 0),
-(5, 'Pharmacy', 'ti-medicine', 'Clinic Workflow', 'active', 5, 0),
-(6, 'Finance', 'ti-wallet', 'Admin & Setup', 'active', 6, 0),
-(7, 'Admin & Staff', 'ti-settings', 'Admin & Setup', 'active', 7, 0),
-(8, 'Reports', 'ti-chart-bar', 'Reports', 'inactive', 8, 1),
-(9, 'ASDFGHJKL;', NULL, 'ASDSDDSFDF', 'active', 9, 1),
-(10, 'Warbixinada (Reports)', 'ti-chart-bar', 'Reports', 'active', 8, 0);
+INSERT INTO `menues` (`menu_id`, `menu_name`, `icon`, `status`, `sort_order`, `deleted`) VALUES
+(1, 'Dashboard', 'ti-layout-dashboard', 'active', 1, 0),
+(2, 'Patients', 'ti-user-heart', 'active', 2, 0),
+(12, 'Appointments', 'ti-calendar', 'active', 3, 0),
+(13, 'Visits', 'ti-clipboard-list', 'active', 4, 0),
+(14, 'Doctors', 'ti-stethoscope', 'active', 5, 0),
+(3, 'Nursing', 'ti-heart-pulse', 'active', 6, 0),
+(4, 'Laboratory', 'ti-microscope', 'active', 7, 0),
+(5, 'Pharmacy', 'ti-medicine', 'active', 8, 0),
+(6, 'Finance', 'ti-wallet', 'active', 9, 0),
+(7, 'Staff', 'ti-user-cog', 'active', 10, 0),
+(17, 'Users', 'ti-users', 'active', 11, 0),
+(10, 'Reports', 'ti-chart-bar', 'active', 12, 0),
+(15, 'Developers', 'ti-code', 'active', 13, 0),
+(16, 'Settings', 'ti-settings', 'active', 14, 0);
 
 -- --------------------------------------------------------
 
@@ -900,6 +1055,25 @@ INSERT INTO `nursing_services` (`Service_ID`, `Service_Name`, `Price`) VALUES
 (4, 'Dhaawac Dhayid (Dressing)', 5.00),
 (5, 'Cabirka Dhiig-Karka (BP)', 0.00);
 
+--
+-- Table structure for table `notifications`
+--
+
+CREATE TABLE `notifications` (
+  `notification_id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) DEFAULT NULL,
+  `type` varchar(20) NOT NULL DEFAULT 'info',
+  `title` varchar(150) NOT NULL,
+  `message` text DEFAULT NULL,
+  `link` varchar(200) DEFAULT NULL,
+  `is_read` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`notification_id`),
+  KEY `idx_notif_user` (`user_id`),
+  KEY `idx_notif_read` (`is_read`),
+  KEY `idx_notif_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 -- --------------------------------------------------------
 
 --
@@ -912,11 +1086,12 @@ CREATE TABLE `patients` (
   `Phone_Number` varchar(20) DEFAULT NULL,
   `Sex` enum('Male','Female') DEFAULT 'Male',
   `Age_Group` enum('Child','Adult') DEFAULT 'Adult',
-  `Patient_Type` enum('Bille','Maalinle') DEFAULT 'Maalinle',
+  `Patient_Type` enum('Credit','Walk-in') DEFAULT 'Walk-in',
   `Guarantor_ID` int(11) DEFAULT NULL,
   `Relationship` enum('Self','Child','Spouse','Other') DEFAULT 'Self',
   `Credit_Limit` decimal(10,2) DEFAULT 0.00,
   `Current_Balance` decimal(10,2) DEFAULT 0.00,
+  `image` varchar(100) DEFAULT NULL,
   `Created_At` timestamp NOT NULL DEFAULT current_timestamp(),
   `deleted` tinyint(1) DEFAULT 0,
   `Updated_At` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
@@ -927,19 +1102,19 @@ CREATE TABLE `patients` (
 --
 
 INSERT INTO `patients` (`Patient_ID`, `Full_Name`, `Phone_Number`, `Sex`, `Age_Group`, `Patient_Type`, `Guarantor_ID`, `Relationship`, `Credit_Limit`, `Current_Balance`, `Created_At`, `deleted`, `Updated_At`) VALUES
-(1, 'Cali Xuseen', '0615112233', 'Male', 'Adult', 'Bille', NULL, 'Self', 100.00, 15.00, '2026-04-25 13:13:46', 0, '2026-04-29 07:02:21'),
-(2, 'Axmed Cali Xuseen', NULL, 'Male', 'Adult', 'Bille', 1, 'Child', 0.00, 0.00, '2026-04-25 13:13:46', 0, '2026-04-29 07:02:21'),
-(3, 'Canab Daahir', '0616998877', 'Male', 'Adult', 'Bille', 1, 'Spouse', 0.00, 0.00, '2026-04-25 13:13:46', 0, '2026-04-29 07:02:21'),
-(4, 'Xaawo Maxamed', '0612334455', 'Male', 'Adult', 'Maalinle', NULL, 'Self', 0.00, 0.00, '2026-04-25 13:13:46', 0, '2026-04-29 07:02:21'),
-(5, 'Nuur Jaamac', '0619776655', 'Male', 'Adult', 'Maalinle', NULL, 'Self', 0.00, 5.00, '2026-04-25 13:13:46', 0, '2026-04-29 09:09:49'),
-(6, 'amin', '8765643', 'Male', 'Adult', 'Bille', 2, 'Self', 1000.00, 0.00, '2026-04-28 11:03:19', 0, '2026-04-29 07:02:21'),
-(7, 'tijaabo', '0612803434', 'Male', 'Adult', 'Maalinle', 6, 'Self', 0.00, 0.00, '2026-04-28 13:39:52', 0, '2026-04-30 06:45:10'),
-(8, 'nawaaf', '618123132', 'Male', 'Adult', 'Maalinle', NULL, 'Self', 0.00, 0.00, '2026-04-30 06:25:13', 0, '2026-04-30 06:25:13'),
-(9, 'nawaaf amed', '2324646769978', 'Male', 'Child', 'Maalinle', NULL, 'Self', 0.00, 0.00, '2026-04-30 07:09:30', 0, '2026-04-30 07:09:30'),
-(10, 'hasan', '213456768', 'Male', 'Adult', 'Maalinle', NULL, 'Self', 0.00, 0.00, '2026-05-03 13:19:43', 0, '2026-05-03 13:19:43'),
-(11, 'asdfghjkl', NULL, 'Male', 'Adult', 'Maalinle', NULL, 'Self', 0.00, 0.00, '2026-05-03 14:31:13', 0, '2026-05-03 14:31:13'),
-(12, 'adan', '615665577', 'Male', 'Adult', 'Maalinle', NULL, 'Self', 0.00, 0.00, '2026-05-13 12:38:35', 0, '2026-05-13 12:38:35'),
-(13, 'muuse', '5745673463', 'Male', 'Adult', 'Maalinle', NULL, 'Self', 0.00, 0.00, '2026-05-14 08:54:28', 0, '2026-05-14 08:54:28');
+(1, 'Cali Xuseen', '0615112233', 'Male', 'Adult', 'Credit', NULL, 'Self', 100.00, 15.00, '2026-04-25 13:13:46', 0, '2026-04-29 07:02:21'),
+(2, 'Axmed Cali Xuseen', NULL, 'Male', 'Adult', 'Credit', 1, 'Child', 0.00, 0.00, '2026-04-25 13:13:46', 0, '2026-04-29 07:02:21'),
+(3, 'Canab Daahir', '0616998877', 'Male', 'Adult', 'Credit', 1, 'Spouse', 0.00, 0.00, '2026-04-25 13:13:46', 0, '2026-04-29 07:02:21'),
+(4, 'Xaawo Maxamed', '0612334455', 'Male', 'Adult', 'Walk-in', NULL, 'Self', 0.00, 0.00, '2026-04-25 13:13:46', 0, '2026-04-29 07:02:21'),
+(5, 'Nuur Jaamac', '0619776655', 'Male', 'Adult', 'Walk-in', NULL, 'Self', 0.00, 5.00, '2026-04-25 13:13:46', 0, '2026-04-29 09:09:49'),
+(6, 'amin', '8765643', 'Male', 'Adult', 'Credit', 2, 'Self', 1000.00, 0.00, '2026-04-28 11:03:19', 0, '2026-04-29 07:02:21'),
+(7, 'tijaabo', '0612803434', 'Male', 'Adult', 'Walk-in', 6, 'Self', 0.00, 0.00, '2026-04-28 13:39:52', 0, '2026-04-30 06:45:10'),
+(8, 'nawaaf', '618123132', 'Male', 'Adult', 'Walk-in', NULL, 'Self', 0.00, 0.00, '2026-04-30 06:25:13', 0, '2026-04-30 06:25:13'),
+(9, 'nawaaf amed', '2324646769978', 'Male', 'Child', 'Walk-in', NULL, 'Self', 0.00, 0.00, '2026-04-30 07:09:30', 0, '2026-04-30 07:09:30'),
+(10, 'hasan', '213456768', 'Male', 'Adult', 'Walk-in', NULL, 'Self', 0.00, 0.00, '2026-05-03 13:19:43', 0, '2026-05-03 13:19:43'),
+(11, 'asdfghjkl', NULL, 'Male', 'Adult', 'Walk-in', NULL, 'Self', 0.00, 0.00, '2026-05-03 14:31:13', 0, '2026-05-03 14:31:13'),
+(12, 'adan', '615665577', 'Male', 'Adult', 'Walk-in', NULL, 'Self', 0.00, 0.00, '2026-05-13 12:38:35', 0, '2026-05-13 12:38:35'),
+(13, 'muuse', '5745673463', 'Male', 'Adult', 'Walk-in', NULL, 'Self', 0.00, 0.00, '2026-05-14 08:54:28', 0, '2026-05-14 08:54:28');
 
 -- --------------------------------------------------------
 
@@ -1085,10 +1260,13 @@ INSERT INTO `sms_logs` (`Log_ID`, `Patient_ID`, `Message_Body`, `Message_Type`, 
 
 CREATE TABLE `staff` (
   `Staff_ID` int(11) NOT NULL,
-  `User_ID` int(11) NOT NULL,
+  `User_ID` int(11) DEFAULT NULL,
+  `Role_ID` int(11) DEFAULT NULL,
   `Full_Name` varchar(100) NOT NULL,
   `Phone_Number` varchar(50) DEFAULT NULL,
-  `Credential_Or_Badge` varchar(120) DEFAULT NULL COMMENT 'Liisan / aqoonsi',
+  `Email` varchar(100) DEFAULT NULL,
+  `Credential_Or_Badge` varchar(120) DEFAULT NULL COMMENT 'License / credential / professional ID',
+  `Credential_Type` varchar(60) DEFAULT NULL COMMENT 'Credential type (e.g. Nurse License, Professional ID)',
   `Notes` text DEFAULT NULL,
   `status` enum('active','inactive') DEFAULT 'active',
   `Created_At` datetime DEFAULT current_timestamp()
@@ -1104,6 +1282,7 @@ CREATE TABLE `submenues` (
   `submenu_id` int(11) NOT NULL,
   `menu_id` int(11) NOT NULL,
   `submenu_name` varchar(100) NOT NULL,
+  `menu_icon` varchar(50) DEFAULT NULL,
   `menu_url` varchar(100) NOT NULL,
   `status` enum('active','inactive') DEFAULT 'active',
   `sort_order` int(11) DEFAULT 0,
@@ -1116,10 +1295,10 @@ CREATE TABLE `submenues` (
 
 INSERT INTO `submenues` (`submenu_id`, `menu_id`, `submenu_name`, `menu_url`, `status`, `sort_order`, `deleted`) VALUES
 (1, 1, 'Dashboard', 'index.php', 'active', 1, 0),
-(2, 2, 'Patient Desk', 'pages/patients.php', 'active', 1, 0),
-(3, 2, 'Appointment Board', 'appointments.php', 'active', 2, 0),
-(4, 2, 'Visit Workspace', 'visits.php', 'active', 3, 0),
-(5, 2, 'Doctors', 'doctors.php', 'active', 4, 0),
+(2, 2, 'Patients', 'pages/patients.php', 'active', 1, 0),
+(3, 12, 'Appointment Board', 'appointments.php', 'active', 1, 0),
+(4, 13, 'Visits', 'visits.php', 'active', 1, 0),
+(5, 14, 'Doctors', 'doctors.php', 'active', 1, 0),
 (6, 3, 'Nursing Records', 'nursing_records.php', 'active', 1, 0),
 (7, 3, 'Nursing Services', 'nursing_services.php', 'active', 2, 0),
 (8, 4, 'Lab Queue', 'lab_results.php', 'active', 1, 0),
@@ -1130,20 +1309,24 @@ INSERT INTO `submenues` (`submenu_id`, `menu_id`, `submenu_name`, `menu_url`, `s
 (13, 6, 'Payment Desk', 'payments.php', 'active', 1, 0),
 (14, 6, 'Accounts', 'pages/accounts.php', 'active', 2, 0),
 (15, 6, 'Account Transfers', 'account_transfers.php', 'active', 3, 0),
-(16, 7, 'Shaqaale (Staff hub)', 'pages/staff.php', 'active', 1, 0),
-(17, 7, 'Roles', 'roles.php', 'active', 3, 0),
-(18, 7, 'User Privileges', 'privileges.php', 'active', 4, 0),
-(19, 7, 'SMS Logs', 'sms_logs.php', 'active', 5, 0),
-(20, 8, 'Finance Report', 'report_finance.php', 'active', 1, 0),
-(21, 8, 'Lab Report', 'report_lab.php', 'active', 2, 0),
-(22, 8, 'Pharmacy Report', 'report_pharmacy.php', 'active', 3, 0),
-(23, 7, 'Menus', 'menues.php', 'active', 6, 0),
-(24, 7, 'Submenus', 'menues.php?tab=sub', 'active', 7, 0),
-(25, 9, 'Fixed Assets', 'fixed_assets.php', 'active', 1, 0),
-(26, 9, 'Fixed Assetsgdgfhjkl', 'fixed_assets.php', 'active', 1, 0),
-(27, 6, 'accounts', 'pages/accounts.php', 'active', 4, 0),
-(28, 7, 'Users (akoonno buuxa)', 'pages/users.php', 'active', 2, 0),
-(29, 10, 'Daymaha Bukaanka', 'pages/reports.php', 'active', 1, 0);
+(16, 7, 'Staff', 'pages/staff.php', 'active', 1, 0),
+(23, 15, 'Menus', 'menues.php', 'active', 1, 0),
+(24, 15, 'Submenus', 'menues.php?tab=sub', 'active', 2, 0),
+(38, 15, 'Menu Sorting', 'menu-sort.php', 'active', 3, 0),
+(28, 17, 'Users', 'pages/users.php', 'active', 1, 0),
+(18, 17, 'User Privileges', 'pages/user_privileges.php', 'active', 2, 0),
+(17, 17, 'Roles', 'roles.php', 'active', 3, 0),
+(30, 16, 'System Settings', 'pages/system_settings.php', 'active', 1, 0),
+(19, 16, 'SMS Logs', 'sms_logs.php', 'active', 2, 0),
+(41, 16, 'Audit Logs', 'pages/audit_logs.php', 'active', 3, 0),
+(42, 16, 'Notifications', 'pages/notifications.php', 'active', 4, 0),
+(40, 16, 'My Profile', 'pages/profile.php', 'active', 5, 0),
+(29, 10, 'Reports', 'pages/reports.php', 'active', 1, 0),
+(33, 10, 'Clinical Reports', 'pages/reports_clinical.php', 'active', 2, 0),
+(34, 10, 'Finance Reports', 'pages/reports_finance.php', 'active', 3, 0),
+(35, 10, 'Pharmacy Reports', 'pages/reports_pharmacy.php', 'active', 4, 0),
+(36, 10, 'Operations Reports', 'pages/reports_operations.php', 'active', 5, 0),
+(37, 10, 'Administration Reports', 'pages/reports_administration.php', 'active', 6, 0);
 
 -- --------------------------------------------------------
 
@@ -1160,7 +1343,11 @@ CREATE TABLE `users` (
   `image` varchar(100) DEFAULT 'default-user.png',
   `status` enum('active','inactive') DEFAULT 'active',
   `deleted` tinyint(1) DEFAULT 0,
-  `last_login` datetime DEFAULT NULL
+  `last_login` datetime DEFAULT NULL,
+  `activation_token` varchar(64) DEFAULT NULL,
+  `activation_expires_at` datetime DEFAULT NULL,
+  `reset_token` varchar(64) DEFAULT NULL,
+  `reset_expires_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --

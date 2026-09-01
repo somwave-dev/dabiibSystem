@@ -1,9 +1,47 @@
 <?php
+// clinic_avatar() lives in includes/advanced_components.php — make it available
+// on every layout (e.g. index.php) even when the pages/ helpers were not loaded.
+if (!function_exists('clinic_avatar')) {
+    require_once __DIR__ . '/advanced_components.php';
+}
 $assetBase = $GLOBALS['asset_base'] ?? '';
 $appBase = $GLOBALS['app_base'] ?? '';
 $currentUserName = (string) ($_SESSION['username'] ?? 'User');
 $currentUserRole = (string) ($_SESSION['role_name'] ?? 'Clinic user');
 $currentUserImage = (string) ($_SESSION['user_image'] ?? 'default-user.png');
+
+// Notifications for the topbar bell (safe: never breaks the layout).
+$headerUnread = 0;
+$headerNotifs = [];
+try {
+    $headerUnread = clinic_unread_notifications();
+    $connHdr = $GLOBALS['conn'] ?? null;
+    if ($connHdr instanceof mysqli) {
+        $uidHdr = (int) ($_SESSION['user_no'] ?? $_SESSION['User_ID'] ?? 0);
+        $stmtHdr = $connHdr->prepare('SELECT notification_id, type, title, message, link, is_read, created_at FROM notifications WHERE user_id IS NULL OR user_id = ? ORDER BY created_at DESC, notification_id DESC LIMIT 5');
+        $stmtHdr->bind_param('i', $uidHdr);
+        $stmtHdr->execute();
+        $headerNotifs = $stmtHdr->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmtHdr->close();
+    }
+} catch (Throwable $e) {
+    $headerNotifs = [];
+}
+
+// Branding: use the clinic logo uploaded in System Settings when available.
+$headerLogoUrl = '';
+$headerLogoDarkUrl = '';
+try {
+    require_once __DIR__ . '/../config/codes.php';
+    $brandingCo = new Codes();
+    $brandingPrimary = (string) $brandingCo->setting('site_logo');
+    $brandingLight = (string) $brandingCo->setting('logo_light');
+    $headerLogoUrl = $brandingPrimary === '' ? '' : (preg_match('#^[a-z][a-z0-9+.-]*://#i', $brandingPrimary) || str_starts_with($brandingPrimary, '/') ? $brandingPrimary : $assetBase . $brandingPrimary);
+    $darkLogo = $brandingLight !== '' ? $brandingLight : $brandingPrimary;
+    $headerLogoDarkUrl = $darkLogo === '' ? '' : (preg_match('#^[a-z][a-z0-9+.-]*://#i', $darkLogo) || str_starts_with($darkLogo, '/') ? $darkLogo : $assetBase . $darkLogo);
+} catch (Throwable $e) {
+    // keep the default template logos
+}
 ?>
    <header class="navbar-header">
             <div class="page-container topbar-menu">
@@ -14,13 +52,25 @@ $currentUserImage = (string) ($_SESSION['user_image'] ?? 'default-user.png');
 
                         <!-- Logo Normal -->
                         <span class="logo-light">
-                            <span class="logo-lg"><img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/logo.svg" alt="logo"></span>
+                            <span class="logo-lg">
+                                <?php if ($headerLogoUrl !== ''): ?>
+                                    <img src="<?php echo htmlspecialchars($headerLogoUrl, ENT_QUOTES, 'UTF-8'); ?>" alt="logo">
+                                <?php else: ?>
+                                    <img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/logo.svg" alt="logo">
+                                <?php endif; ?>
+                            </span>
                             <span class="logo-sm"><img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/logo-small.svg" alt="small logo"></span>
                         </span>
 
                         <!-- Logo Dark -->
                         <span class="logo-dark">
-                            <span class="logo-lg"><img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/logo-white.svg" alt="dark logo"></span>
+                            <span class="logo-lg">
+                                <?php if ($headerLogoDarkUrl !== ''): ?>
+                                    <img src="<?php echo htmlspecialchars($headerLogoDarkUrl, ENT_QUOTES, 'UTF-8'); ?>" alt="dark logo">
+                                <?php else: ?>
+                                    <img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/logo-white.svg" alt="dark logo">
+                                <?php endif; ?>
+                            </span>
                         </span>
                     </a>
 
@@ -32,66 +82,60 @@ $currentUserImage = (string) ($_SESSION['user_image'] ?? 'default-user.png');
                     <button class="sidenav-toggle-btn btn border-0 p-0 active" id="toggle_btn2"> 
                         <i class="ti ti-arrow-right"></i>
                     </button> 
-					
-                    <!-- Search -->
-                    <div class="me-auto d-flex align-items-center header-search d-lg-flex d-none">
-                        <!-- Search -->
-                        <div class="input-icon-start position-relative me-2">
-                            <span class="input-icon-addon">
-                                <i class="ti ti-search"></i>
-                            </span>
-                           <input type="text" class="form-control shadow-sm" placeholder="Search">
-                           <span class="input-icon-addon text-dark shadow fs-18 d-inline-flex p-0 header-search-icon"><i class="ti ti-command"></i></span>
-                        </div>
-                        <!-- /Search -->
+
+                    <!-- Page Greeting -->
+                    <div class="page-title-box align-self-center d-none d-md-block ms-2">
+                        <h4 class="page-title mb-0 fs-15 fw-semibold lh-sm">Hi, <?php echo htmlspecialchars($currentUserName, ENT_QUOTES, 'UTF-8'); ?> 👋 Welcome Back!</h4>
+                       
                     </div>
+					
+
 					
                 </div>
 
                 <div class="d-flex align-items-center">
 				
-                    <!-- Search for Mobile -->
-                    <div class="header-item d-flex d-lg-none me-2">
-                        <button class="topbar-link btn btn-icon" data-bs-toggle="modal" data-bs-target="#searchModal" type="button">
-                            <i class="ti ti-search fs-16"></i>
-                        </button>
-                    </div>
+
 					
-                    <!-- AI Assistance -->
-					<a href="javascript:void(0);" class="btn btn-liner-gradient me-3 d-lg-flex d-none">AI Assistance<i class="ti ti-chart-bubble-filled ms-1"></i></a>
-                    <!-- AI Assistance -->
+                  
 
-                    <!-- Appointment -->
-                    <div class="header-item">
-                        <div class="dropdown me-2">
-                            <a href="<?php echo htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8'); ?>pages/appointments.php" class="btn topbar-link"><i class="ti ti-calendar-due"></i></a>
-                        </div>
-                    </div>                    
-                    <!-- Appointment -->
-
-                    <!-- Settings -->
-                    <div class="header-item">
-                        <div class="dropdown me-2">
-                            <a href="<?php echo htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8'); ?>pages/users.php" class="btn topbar-link"><i class="ti ti-settings-2"></i></a>
-                        </div> 
-                    </div> 
-                    <!-- Settings -->                   
+                                    
 
                     <!-- Light/Dark Mode Button -->
                     <div class="header-item d-none d-sm-flex me-2">
-                        <button class="topbar-link btn btn-icon topbar-link" id="light-dark-mode" type="button">
+                        <button class="topbar-link btn btn-icon topbar-link" id="light-dark-mode" type="button" title="Toggle dark / light mode">
                             <i class="ti ti-moon fs-16"></i>
                         </button>
                     </div>
-                    
-					
-					<!-- Notification Dropdown -->
+                    <script>
+                    (function () {
+                        function syncThemeIcon() {
+                            var el = document.getElementById('light-dark-mode');
+                            var i = el ? el.querySelector('i') : null;
+                            if (!i) { return; }
+                            var dark = document.documentElement.getAttribute('data-bs-theme') === 'dark'
+                                || document.documentElement.getAttribute('data-theme') === 'dark';
+                            i.className = dark ? 'ti ti-sun fs-16' : 'ti ti-moon fs-16';
+                        }
+                        syncThemeIcon();
+                        var t = document.getElementById('light-dark-mode');
+                        if (t) {
+                            t.addEventListener('click', function () {
+                                setTimeout(syncThemeIcon, 80);
+                            });
+                        }
+                        var mo = new MutationObserver(syncThemeIcon);
+                        mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-bs-theme', 'data-theme'] });
+                    })();
+                    </script>
+
+                    <!-- Notification Dropdown -->
                     <div class="header-item">
 						<div class="dropdown me-3">
 						
 							<button class="topbar-link btn btn-icon topbar-link dropdown-toggle drop-arrow-none" data-bs-toggle="dropdown" data-bs-offset="0,24" type="button" aria-haspopup="false" aria-expanded="false">
 								<i class="ti ti-bell-check fs-16 animate-ring"></i>
-								<span class="notification-badge"></span>
+								<span class="notification-badge"><?php echo $headerUnread > 0 ? (int) $headerUnread : ''; ?></span>
 							</button>
 							
 							<div class="dropdown-menu p-0 dropdown-menu-end dropdown-menu-lg" style="min-height: 300px;">
@@ -106,108 +150,41 @@ $currentUserImage = (string) ($_SESSION['user_image'] ?? 'default-user.png');
 								
 								<!-- Notification Body -->
 								<div class="notification-body position-relative z-2 rounded-0" data-simplebar="">
-								 
-									<!-- Item-->
-									<div class="dropdown-item notification-item py-3 text-wrap border-bottom" id="notification-1">
-										<div class="d-flex">
-											<div class="me-2 position-relative flex-shrink-0">
-												<img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/doctors/doctor-01.jpg" class="avatar-md rounded-circle" alt="">
-											</div>
-											<div class="flex-grow-1">
-												<p class="mb-0 fw-medium text-dark">Dr. Smith</p>
-												<p class="mb-1 text-wrap">
-													updated the <span class="fw-medium text-dark">surgery</span> schedule. 
-												</p>
-												<div class="d-flex justify-content-between align-items-center">
-													<span class="fs-12"><i class="ti ti-clock me-1"></i>4 min ago</span>
-													<div class="notification-action d-flex align-items-center float-end gap-2">
-														<a href="javascript:void(0);" class="notification-read rounded-circle bg-danger" data-bs-toggle="tooltip" title="" data-bs-original-title="Make as Read" aria-label="Make as Read"></a>
-														<button class="btn rounded-circle p-0" data-dismissible="#notification-1">
-															<i class="ti ti-x"></i>
-														</button>
+									<?php if ($headerNotifs === []): ?>
+										<div class="dropdown-item notification-item py-4 text-center text-muted">
+											<i class="ti ti-bell-off d-block mb-1 fs-20"></i>
+											No notifications
+										</div>
+									<?php else: ?>
+										<?php foreach ($headerNotifs as $hn): ?>
+											<?php $hnType = (string) ($hn['type'] ?? 'info'); ?>
+											<?php $hnIcon = ['success' => 'ti-circle-check', 'warning' => 'ti-alert-triangle', 'danger' => 'ti-alert-octagon', 'info' => 'ti-info-circle'][$hnType] ?? 'ti-info-circle'; ?>
+											<?php $hnColor = ['success' => 'bg-success', 'warning' => 'bg-warning', 'danger' => 'bg-danger', 'info' => 'bg-info'][$hnType] ?? 'bg-info'; ?>
+											<div class="dropdown-item notification-item py-3 text-wrap border-bottom">
+												<div class="d-flex">
+													<div class="me-2 position-relative flex-shrink-0">
+														<span class="d-inline-flex align-items-center justify-content-center rounded-circle text-white <?php echo $hnColor; ?>" style="width:40px;height:40px"><i class="ti <?php echo $hnIcon; ?> fs-18"></i></span>
+													</div>
+													<div class="flex-grow-1">
+														<p class="mb-0 fw-medium" style="color:var(--bs-body-color)"><?php echo htmlspecialchars((string) ($hn['title'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></p>
+														<?php if (!empty($hn['message'])): ?>
+															<p class="mb-1 text-wrap text-muted"><?php echo htmlspecialchars((string) $hn['message'], ENT_QUOTES, 'UTF-8'); ?></p>
+														<?php endif; ?>
+														<div class="d-flex justify-content-between align-items-center">
+															<span class="fs-12"><i class="ti ti-clock me-1"></i><?php echo htmlspecialchars((string) ($hn['created_at'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></span>
+															<?php if ((int) ($hn['is_read'] ?? 0) === 0): ?>
+																<span class="badge text-bg-warning">New</span>
+															<?php endif; ?>
+														</div>
 													</div>
 												</div>
 											</div>
-										</div>
-									</div>
-							
-									<!-- Item-->
-									<div class="dropdown-item notification-item py-3 text-wrap border-bottom" id="notification-2">
-										<div class="d-flex">
-											<div class="me-2 position-relative flex-shrink-0">
-												<img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/doctors/doctor-06.jpg" class="avatar-md rounded-circle" alt="">
-											</div>
-											<div class="flex-grow-1">
-												<p class="mb-0 fw-medium text-dark">Dr. Patel</p>
-												<p class="mb-1 text-wrap">
-                                                    completed a <span class="fw-medium text-dark">follow-up</span> report for patient <span class="fw-medium text-dark">Emily</span>.
-												</p>
-												<div class="d-flex justify-content-between align-items-center">
-													<span class="fs-12"><i class="ti ti-clock me-1"></i>8 min ago</span>
-													<div class="notification-action d-flex align-items-center float-end gap-2">
-														<a href="javascript:void(0);" class="notification-read rounded-circle bg-danger" data-bs-toggle="tooltip" title="" data-bs-original-title="Make as Read" aria-label="Make as Read"></a>
-														<button class="btn rounded-circle p-0" data-dismissible="#notification-2">
-															<i class="ti ti-x"></i>
-														</button>
-													</div>
-												</div>
-											</div>
-										</div>
-									</div>
-									
-									<!-- Item-->
-									<div class="dropdown-item notification-item py-3 text-wrap border-bottom" id="notification-3">
-										<div class="d-flex">
-											<div class="me-2 position-relative flex-shrink-0">
-												<img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/doctors/doctor-02.jpg" class="avatar-md rounded-circle" alt="">
-											</div>
-											<div class="flex-grow-1">
-												<p class="mb-0 fw-medium text-dark">Emily</p>
-												<p class="mb-1 text-wrap">
-                                                    booked an appointment with <span class="fw-medium text-dark">Dr. Patel</span> for <span class="fw-medium text-dark">April 15</span>
-												</p>
-												<div class="d-flex justify-content-between align-items-center">
-													<span class="fs-12"><i class="ti ti-clock me-1"></i>15 min ago</span>
-													<div class="notification-action d-flex align-items-center float-end gap-2">
-														<a href="javascript:void(0);" class="notification-read rounded-circle bg-danger" data-bs-toggle="tooltip" title="" data-bs-original-title="Make as Read" aria-label="Make as Read"></a>
-														<button class="btn rounded-circle p-0" data-dismissible="#notification-3">
-															<i class="ti ti-x"></i>
-														</button>
-													</div>
-												</div>
-											</div>
-										</div>
-									</div>
-									
-									<!-- Item-->
-									<div class="dropdown-item notification-item py-3 text-wrap" id="notification-4">
-										<div class="d-flex">
-											<div class="me-2 position-relative flex-shrink-0">
-												<img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/doctors/doctor-07.jpg" class="avatar-md rounded-circle" alt="">
-											</div>
-											<div class="flex-grow-1">
-												<p class="mb-0 fw-medium text-dark">Amelia</p>
-												<p class="mb-1 text-wrap">
-                                                    completed the <span class="fw-medium text-dark">pre-visit</span> health questionnaire.
-												</p>
-												<div class="d-flex justify-content-between align-items-center">
-													<span class="fs-12"><i class="ti ti-clock me-1"></i>20 min ago</span>
-													<div class="notification-action d-flex align-items-center float-end gap-2">
-														<a href="javascript:void(0);" class="notification-read rounded-circle bg-danger" data-bs-toggle="tooltip" title="" data-bs-original-title="Make as Read" aria-label="Make as Read"></a>
-														<button class="btn rounded-circle p-0" data-dismissible="#notification-4">
-															<i class="ti ti-x"></i>
-														</button>
-													</div>
-												</div>
-											</div>
-										</div>
-									</div>
-									 
+										<?php endforeach; ?>
+									<?php endif; ?>
 								</div>
-								
 								<!-- View All-->
 								<div class="p-2 rounded-bottom border-top text-center">
-									<a href="<?php echo htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8'); ?>pages/sms_logs.php" class="text-center text-decoration-underline fs-14 mb-0">
+									<a href="<?php echo htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8'); ?>pages/notifications.php" class="text-center text-decoration-underline fs-14 mb-0">
 										View All Notifications
 									</a>
 								</div>
@@ -219,13 +196,13 @@ $currentUserImage = (string) ($_SESSION['user_image'] ?? 'default-user.png');
 					<!-- User Dropdown -->
 					<div class="dropdown profile-dropdown d-flex align-items-center justify-content-center">
                         <a href="javascript:void(0);" class="topbar-link dropdown-toggle drop-arrow-none position-relative" data-bs-toggle="dropdown" data-bs-offset="0,22" aria-haspopup="false" aria-expanded="false">
-                            <img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/users/<?php echo htmlspecialchars($currentUserImage, ENT_QUOTES, 'UTF-8'); ?>" width="32" class="rounded-circle d-flex" alt="user-image">
+                            <?php echo clinic_avatar($currentUserImage, $currentUserName, 'clinic-avatar clinic-avatar-sm rounded-circle d-flex'); ?>
                             <span class="online text-success"><i class="ti ti-circle-filled d-flex bg-white rounded-circle border border-1 border-white"></i></span>
                         </a>
                         <div class="dropdown-menu dropdown-menu-end dropdown-menu-md p-2">
                         
                             <div class="d-flex align-items-center bg-light rounded-3 p-2 mb-2">
-                                <img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/users/<?php echo htmlspecialchars($currentUserImage, ENT_QUOTES, 'UTF-8'); ?>" class="rounded-circle" width="42" height="42" alt="">
+                                <?php echo clinic_avatar($currentUserImage, $currentUserName, 'clinic-avatar clinic-avatar-md rounded-circle'); ?>
                                 <div class="ms-2">
                                     <p class="fw-medium text-dark mb-0"><?php echo htmlspecialchars($currentUserName, ENT_QUOTES, 'UTF-8'); ?></p>
                                     <span class="d-block fs-13"><?php echo htmlspecialchars($currentUserRole !== '' ? $currentUserRole : 'Clinic user', ENT_QUOTES, 'UTF-8'); ?></span>
@@ -233,28 +210,11 @@ $currentUserImage = (string) ($_SESSION['user_image'] ?? 'default-user.png');
                             </div>
 
                             <!-- Item-->
-                            <a href="<?php echo htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8'); ?>pages/users.php" class="dropdown-item">
+                            <a href="<?php echo htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8'); ?>pages/profile.php" class="dropdown-item">
                                 <i class="ti ti-user-circle me-1 align-middle"></i>
-                                <span class="align-middle">Profile Settings</span>
+                                <span class="align-middle">My Profile</span>
                             </a>
 
-                            <!-- Item-->
-                            <a href="<?php echo htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8'); ?>pages/users.php" class="dropdown-item">
-                                <i class="ti ti-settings me-1 align-middle"></i>
-                                <span class="align-middle">Account Settings</span>
-                            </a>
-
-                            <!-- item -->
-                            <div class="form-check form-switch form-check-reverse d-flex align-items-center justify-content-between dropdown-item mb-0">
-                                <label class="form-check-label" for="notify"><i class="ti ti-bell me-1"></i>Notifications</label>
-                                <input class="form-check-input me-0" type="checkbox" role="switch" id="notify">
-                            </div>
-
-                            <!-- Item-->
-                            <a href="<?php echo htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8'); ?>pages/payments.php" class="dropdown-item">
-                                <i class="ti ti-transition-right me-1 align-middle"></i>
-                                <span class="align-middle">Transactions</span>
-                            </a>
 
                                         
                             
@@ -273,17 +233,4 @@ $currentUserImage = (string) ($_SESSION['user_image'] ?? 'default-user.png');
         </header>
         <!-- Topbar End -->
 
-        <!-- Search Modal -->
-        <div class="modal fade" id="searchModal">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content bg-transparent">
-                    <div class="card shadow-none mb-0">
-                        <div class="px-3 py-2 d-flex flex-row align-items-center" id="search-top">
-                            <i class="ti ti-search fs-22"></i>
-                            <input type="search" class="form-control border-0" placeholder="Search">
-                            <button type="button" class="btn p-0" data-bs-dismiss="modal" aria-label="Close"><i class="ti ti-x fs-22"></i></button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+   

@@ -1,10 +1,12 @@
 <?php
-require_once __DIR__ . '/../config/procedures.php';
+require_once __DIR__ . '/advanced_components.php';
 require_once __DIR__ . '/../config/auth_login.php';
 
-function clinic_h(mixed $value): string
-{
-    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+if (!function_exists('clinic_h')) {
+    function clinic_h(mixed $value): string
+    {
+        return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+    }
 }
 
 function clinic_current_path(): string
@@ -12,20 +14,24 @@ function clinic_current_path(): string
     return basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
 }
 
-function clinic_csrf_token(): string
-{
-    if (empty($_SESSION['csrf_token'])) {
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-    }
+if (!function_exists('clinic_csrf_token')) {
+    function clinic_csrf_token(): string
+    {
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
 
-    return (string) $_SESSION['csrf_token'];
+        return (string) $_SESSION['csrf_token'];
+    }
 }
 
-function clinic_check_csrf(): void
-{
-    $sent = (string) ($_POST['csrf_token'] ?? '');
-    if ($sent === '' || !hash_equals(clinic_csrf_token(), $sent)) {
-        throw new RuntimeException('Invalid form token. Refresh and try again.');
+if (!function_exists('clinic_check_csrf')) {
+    function clinic_check_csrf(): void
+    {
+        $sent = (string) ($_POST['csrf_token'] ?? '');
+        if ($sent === '' || !hash_equals(clinic_csrf_token(), $sent)) {
+            throw new RuntimeException('Invalid form token. Refresh and try again.');
+        }
     }
 }
 
@@ -186,6 +192,19 @@ function clinic_render_field(array $field, ?array $editRow): void
         if (!empty($field['hint'])) {
             echo '<div class="form-text">' . clinic_h((string) $field['hint']) . '</div>';
         }
+    } elseif ($type === 'file') {
+        echo '<input class="form-control" type="file" id="' . clinic_h($id) . '" name="' . clinic_h($name) . '" accept="image/png,image/jpeg,image/gif,image/webp"' . $required . '>';
+        echo '<input type="hidden" name="' . clinic_h($name) . '_Current" value="' . clinic_h($value) . '">';
+        echo '<input type="hidden" name="' . clinic_h($name) . '_Remove" value="">';
+        if ($value !== '' && $value !== null) {
+            echo '<div class="form-check mt-2">';
+            echo '<input class="form-check-input" type="checkbox" id="' . clinic_h($id) . '_remove" onchange="var f=document.querySelector(\'input[name=' . clinic_h($name) . '_Remove]\'); if(f){f.value=this.checked?\'1\':\'\';}">';
+            echo '<label class="form-check-label" for="' . clinic_h($id) . '_remove">Remove current photo</label>';
+            echo '</div>';
+        }
+        if (!empty($field['hint'])) {
+            echo '<div class="form-text">' . clinic_h((string) $field['hint']) . '</div>';
+        }
     } else {
         $step = isset($field['step']) ? ' step="' . clinic_h($field['step']) . '"' : '';
         echo '<input class="form-control" type="' . clinic_h($type) . '" id="' . clinic_h($id) . '" name="' . clinic_h($name) . '" value="' . clinic_h($value) . '"' . $step . $required . '>';
@@ -202,6 +221,21 @@ function clinic_display_value(string $key, mixed $value): string
 
     if ($key === 'Password_Hash') {
         return '********';
+    }
+
+    if ($key === 'Status') {
+        $map = [
+            'Pending' => 'warning',
+            'Completed' => 'success',
+            'Cancelled' => 'secondary',
+            'active' => 'success',
+            'inactive' => 'secondary',
+            'Paid' => 'success',
+            'Unpaid' => 'danger',
+        ];
+        $color = $map[(string) $value] ?? 'primary';
+
+        return '<span class="badge text-bg-' . clinic_h($color) . '">' . clinic_h($value) . '</span>';
     }
 
     return clinic_h($value);
@@ -247,6 +281,15 @@ function clinic_render_crud_page(string $pageKey, ?string $subtitle = null, ?str
                             $_POST['Password_Hash'] = (string) ($existing['Password_Hash'] ?? '');
                         }
                     }
+                }
+                if ($pageKey === 'doctors' && $errors === []) {
+                    $image = clinic_post_string('image_Current');
+                    if (!empty($_FILES['image']) && (int) ($_FILES['image']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+                        $image = clinic_handle_avatar_upload('image');
+                    } elseif (clinic_post_string('image_Remove') !== '') {
+                        $image = '';
+                    }
+                    $_POST['image'] = $image;
                 }
                 if ($errors === []) {
                     $params = [$id];
@@ -322,14 +365,35 @@ function clinic_render_crud_page(string $pageKey, ?string $subtitle = null, ?str
                 <?php endif; ?>
 
                 <?php if ($notice !== ''): ?>
-                    <div class="alert alert-success"><?php echo clinic_h($notice); ?></div>
+                    <script>
+                        document.addEventListener('DOMContentLoaded', function () {
+                            if (window.Swal) {
+                                Swal.fire({
+                                    toast: true,
+                                    position: 'top-end',
+                                    icon: 'success',
+                                    title: 'Done',
+                                    text: <?php echo json_encode($notice, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>,
+                                    showConfirmButton: false,
+                                    timer: 3200,
+                                    timerProgressBar: true
+                                });
+                            }
+                        });
+                    </script>
                 <?php endif; ?>
                 <?php if ($errors !== []): ?>
-                    <div class="alert alert-danger">
-                        <?php foreach ($errors as $error): ?>
-                            <div><?php echo clinic_h($error); ?></div>
-                        <?php endforeach; ?>
-                    </div>
+                    <script>
+                        document.addEventListener('DOMContentLoaded', function () {
+                            if (window.Swal) {
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Save failed',
+                                    html: <?php echo json_encode(implode('<br>', array_map('clinic_h', $errors)), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>
+                                });
+                            }
+                        });
+                    </script>
                 <?php endif; ?>
 
                 <div class="card shadow-sm">
@@ -343,7 +407,9 @@ function clinic_render_crud_page(string $pageKey, ?string $subtitle = null, ?str
                                 <thead>
                                     <tr>
                                         <?php $columns = $rows ? array_keys($rows[0]) : array_merge([$pk], array_column($config['fields'], 'name')); ?>
+                                        <?php $avatarCfg = $config['avatar'] ?? null; ?>
                                         <?php foreach ($columns as $column): ?>
+                                            <?php if ($column === 'image') { continue; } ?>
                                             <th><?php echo clinic_h(str_replace('_', ' ', $column)); ?></th>
                                         <?php endforeach; ?>
                                         <th class="text-end">Actions</th>
@@ -353,15 +419,28 @@ function clinic_render_crud_page(string $pageKey, ?string $subtitle = null, ?str
                                     <?php foreach ($rows as $row): ?>
                                         <tr>
                                             <?php foreach ($columns as $column): ?>
+                                                <?php if ($column === 'image') { continue; } ?>
+                                                <?php if ($avatarCfg && $column === ($avatarCfg['name'] ?? '')): ?>
+                                                <td>
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <?php echo clinic_avatar($row[$avatarCfg['image'] ?? 'image'] ?? '', $row[$column] ?? '', 'clinic-avatar-sm'); ?>
+                                                        <span><?php echo clinic_display_value($column, $row[$column] ?? ''); ?></span>
+                                                    </div>
+                                                </td>
+                                                <?php else: ?>
                                                 <td><?php echo clinic_display_value($column, $row[$column] ?? ''); ?></td>
+                                                <?php endif; ?>
                                             <?php endforeach; ?>
                                             <td class="text-end">
-                                                <a class="btn btn-sm btn-light border" href="<?php echo clinic_h(clinic_current_path()); ?>?edit=<?php echo (int) ($row[$pk] ?? 0); ?>">Edit</a>
-                                                <form class="d-inline" method="post" onsubmit="return confirm('Delete this record?');">
+                                                <?php if (!empty($config['profile'])): ?>
+                                                <a class="btn btn-sm btn-outline-primary btn-icon" title="Profile" href="<?php echo clinic_h(clinic_current_path()); ?>?profile_id=<?php echo (int) ($row[$pk] ?? 0); ?>"><i class="ti ti-user"></i></a>
+                                                <?php endif; ?>
+                                                <a class="btn btn-sm btn-light border btn-icon" title="Edit" href="<?php echo clinic_h(clinic_current_path()); ?>?edit=<?php echo (int) ($row[$pk] ?? 0); ?>"><i class="ti ti-pencil"></i></a>
+                                                <form class="d-inline js-confirm-delete" method="post" data-confirm-text="Delete this record?">
                                                     <input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>">
                                                     <input type="hidden" name="action" value="delete">
                                                     <input type="hidden" name="<?php echo clinic_h($pk); ?>" value="<?php echo (int) ($row[$pk] ?? 0); ?>">
-                                                    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                                                    <button class="btn btn-sm btn-outline-danger btn-icon" type="submit" title="Delete"><i class="ti ti-trash"></i></button>
                                                 </form>
                                             </td>
                                         </tr>
@@ -373,12 +452,12 @@ function clinic_render_crud_page(string $pageKey, ?string $subtitle = null, ?str
                 </div>
             </div>
 
-            <div class="modal fade" id="crudFormModal" tabindex="-1" aria-hidden="true">
+            <div class="modal fade" id="crudFormModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
                 <div class="modal-dialog modal-lg modal-dialog-scrollable">
                     <form method="post" autocomplete="off" class="modal-content">
                         <div class="modal-header">
                             <h5 class="modal-title"><?php echo $editRow ? 'Edit' : 'Add'; ?> <?php echo clinic_h($config['title']); ?></h5>
-                            <a class="btn-close" href="<?php echo clinic_h(clinic_current_path()); ?>" aria-label="Close"></a>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
                         <div class="modal-body">
                             <input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>">
@@ -391,8 +470,9 @@ function clinic_render_crud_page(string $pageKey, ?string $subtitle = null, ?str
                             </div>
                         </div>
                         <div class="modal-footer">
-                            <a class="btn btn-light" href="<?php echo clinic_h(clinic_current_path()); ?>">Cancel</a>
-                            <button class="btn btn-primary" type="submit"><?php echo $editRow ? 'Update' : 'Save'; ?></button>
+                            <a class="btn btn-danger" href="<?php echo clinic_h(clinic_current_path()); ?>"><i class="ti ti-x me-1"></i>Cancel</a>
+                            <button class="btn btn-success" type="submit" id="crudBtnUpdate"<?php echo $editRow ? '' : ' style="display:none;"'; ?>><i class="ti ti-edit me-1"></i>Update</button>
+                            <button class="btn btn-primary" type="submit" id="crudBtnSave"<?php echo $editRow ? ' style="display:none;"' : ''; ?>><i class="ti ti-device-floppy me-1"></i>Save</button>
                         </div>
                     </form>
                 </div>

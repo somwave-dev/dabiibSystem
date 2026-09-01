@@ -13,12 +13,8 @@ function clinic_appointment_day(array $appointment): string
 
 function clinic_appointment_return_query(): string
 {
-    $returnView = clinic_post_string('return_view');
     $returnStatus = clinic_post_string('return_status');
     $returnParams = [];
-    if (in_array($returnView, ['cards', 'table'], true)) {
-        $returnParams['view'] = $returnView;
-    }
     if ($returnStatus !== '') {
         $returnParams['status'] = $returnStatus;
     }
@@ -52,7 +48,7 @@ try {
                     $quickPhone,
                     clinic_post_string('Quick_Sex') ?: 'Male',
                     clinic_post_string('Quick_Age_Group') ?: 'Adult',
-                    'Maalinle',
+                    'Walk-in',
                     null,
                     'Self',
                     0.0,
@@ -68,7 +64,7 @@ try {
             }
 
             if ($patientId < 1) {
-                throw new RuntimeException('Select a patient or quick-add a new Maalinle patient.');
+                throw new RuntimeException('Select a patient or quick-add a new Walk-in patient.');
             }
 
             $appointmentStatus = $appointmentId > 0 ? (clinic_post_string('Status') ?: 'Pending') : 'Pending';
@@ -124,6 +120,8 @@ try {
 $appointments = clinic_sp_rows('sp_appointments_list');
 $patients = clinic_sp_rows('sp_patients_list');
 $doctors = clinic_sp_rows('sp_doctors_list');
+$prefillPatientId = (int) ($_GET['patient_id'] ?? 0);
+$prefillDoctorId = (int) ($_GET['doctor_id'] ?? 0);
 $queueRows = $appointments;
 usort($queueRows, static function (array $left, array $right): int {
     $dayCompare = strcmp(clinic_appointment_day($left), clinic_appointment_day($right));
@@ -173,16 +171,21 @@ $todayLastQueue = (int) ($dailyQueueCounts[$todayKey] ?? 0);
 $todayCompletedCount = count(array_filter($todayAppointments, static fn (array $row): bool => (string) ($row['Status'] ?? '') === 'Completed'));
 $todayCancelledCount = count(array_filter($todayAppointments, static fn (array $row): bool => (string) ($row['Status'] ?? '') === 'Cancelled'));
 $status = (string) ($_GET['status'] ?? '');
-$viewMode = (string) ($_GET['view'] ?? 'cards');
-if (!in_array($viewMode, ['cards', 'table'], true)) {
-    $viewMode = 'cards';
-}
 if ($status !== '') {
     $appointments = array_values(array_filter($appointments, static fn ($row) => ($row['Status'] ?? '') === $status));
 }
 
-clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled appointments from one board.');
+clinic_page_start('Appointment Board');
+
+$todayTotalCount = count($todayAppointments);
+$todayPendingCount = count($todayPending);
 ?>
+<div class="row g-3 mb-4">
+    <?php clinic_metric_card('Total Today', $todayTotalCount, 'ti-calendar', 'primary', 'Appointments today'); ?>
+    <?php clinic_metric_card('Pending', $todayPendingCount, 'ti-clock', 'warning', 'Awaiting attendance'); ?>
+    <?php clinic_metric_card('Completed', $todayCompletedCount, 'ti-circle-check', 'success', 'Done today'); ?>
+    <?php clinic_metric_card('Cancelled', $todayCancelledCount, 'ti-circle-x', 'danger', 'Cancelled today'); ?>
+</div>
 <style>
     .appointment-modal .modal-content {
         border: 0;
@@ -191,12 +194,14 @@ clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled
         overflow: hidden;
     }
     .appointment-modal-header {
-        background: linear-gradient(135deg, var(--primary), #5b7cfa);
-        color: #fff;
+        background: #f8fafc;
+        border-bottom: 1px solid rgba(15, 23, 42, .1);
+        color: var(--bs-body-color);
         padding: 1.25rem 1.5rem;
     }
     .appointment-modal-header .modal-title {
         font-weight: 800;
+        color: var(--bs-heading-color);
     }
     .appointment-form-card {
         background: #fff;
@@ -393,28 +398,6 @@ clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled
         flex-wrap: wrap;
         gap: .5rem;
     }
-    .appointment-view-toggle {
-        background: #fff;
-        border: 1px solid rgba(15, 23, 42, .10);
-        border-radius: 12px;
-        display: inline-flex;
-        gap: .25rem;
-        padding: .25rem;
-    }
-    .appointment-view-toggle .btn {
-        align-items: center;
-        border: 0;
-        border-radius: 9px;
-        display: inline-flex;
-        height: 34px;
-        justify-content: center;
-        padding: 0;
-        width: 34px;
-    }
-    .appointment-view-toggle .btn.active {
-        background: rgba(13, 110, 253, .12);
-        color: var(--primary);
-    }
     .appointment-table-avatar {
         align-items: center;
         background: rgba(13, 110, 253, .12);
@@ -527,20 +510,12 @@ clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled
 </style>
 <div class="appointment-toolbar">
     <div class="btn-group">
-        <a class="btn btn-<?php echo $status === '' ? 'primary' : 'light border'; ?>" href="appointments.php?<?php echo http_build_query(['view' => $viewMode]); ?>">All</a>
-        <a class="btn btn-<?php echo $status === 'Pending' ? 'primary' : 'light border'; ?>" href="appointments.php?<?php echo http_build_query(['status' => 'Pending', 'view' => $viewMode]); ?>">Pending</a>
-        <a class="btn btn-<?php echo $status === 'Completed' ? 'primary' : 'light border'; ?>" href="appointments.php?<?php echo http_build_query(['status' => 'Completed', 'view' => $viewMode]); ?>">Completed</a>
-        <a class="btn btn-<?php echo $status === 'Cancelled' ? 'primary' : 'light border'; ?>" href="appointments.php?<?php echo http_build_query(['status' => 'Cancelled', 'view' => $viewMode]); ?>">Cancelled</a>
+        <a class="btn btn-<?php echo $status === '' ? 'primary' : 'light border'; ?>" href="appointments.php?<?php echo http_build_query([]); ?>">All</a>
+        <a class="btn btn-<?php echo $status === 'Pending' ? 'primary' : 'light border'; ?>" href="appointments.php?<?php echo http_build_query(['status' => 'Pending']); ?>">Pending</a>
+        <a class="btn btn-<?php echo $status === 'Completed' ? 'primary' : 'light border'; ?>" href="appointments.php?<?php echo http_build_query(['status' => 'Completed']); ?>">Completed</a>
+        <a class="btn btn-<?php echo $status === 'Cancelled' ? 'primary' : 'light border'; ?>" href="appointments.php?<?php echo http_build_query(['status' => 'Cancelled']); ?>">Cancelled</a>
     </div>
-    <div class="appointment-toolbar-actions">
-        <div class="appointment-view-toggle" aria-label="Appointment view mode">
-            <a class="btn <?php echo $viewMode === 'table' ? 'active' : ''; ?>" title="Table view" href="appointments.php?<?php echo http_build_query(['status' => $status, 'view' => 'table']); ?>">
-                <i class="ti ti-list"></i>
-            </a>
-            <a class="btn <?php echo $viewMode === 'cards' ? 'active' : ''; ?>" title="Card view" href="appointments.php?<?php echo http_build_query(['status' => $status, 'view' => 'cards']); ?>">
-                <i class="ti ti-layout-grid"></i>
-            </a>
-        </div>
+    <div class="appointment-toolbar-actions">
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#appointmentModal" data-appointment-mode="new">New Appointment</button>
     </div>
 </div>
@@ -585,7 +560,6 @@ clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled
     </div>
 </div>
 
-<?php if ($viewMode === 'table'): ?>
 <div class="card clinic-card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">Appointment List</h5>
@@ -598,7 +572,7 @@ clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled
                     <th>Queue</th>
                     <th>Patient</th>
                     <th>Doctor</th>
-                    <th>Appointment Date</th>
+                    <th>App Date</th>
                     <th>Status</th>
                     <th class="text-end">Actions</th>
                 </tr>
@@ -624,18 +598,18 @@ clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled
                         <div class="appointment-table-actions">
                             <?php if ($appointmentStatus === 'Pending'): ?>
                             <a class="btn btn-sm btn-primary" href="visits.php?patient_id=<?php echo (int) ($row['Patient_ID'] ?? 0); ?>&appointment_id=<?php echo (int) ($row['Appointment_ID'] ?? 0); ?>">Start Visit</a>
-                            <a class="btn btn-sm btn-light border" href="appointments.php?<?php echo http_build_query(['print_appointment' => (int) ($row['Appointment_ID'] ?? 0), 'view' => $viewMode, 'status' => $status]); ?>"><i class="ti ti-printer me-1"></i>Print</a>
-                            <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="modal" data-bs-target="#appointmentModal" data-appointment-mode="edit" data-appointment-id="<?php echo (int) ($row['Appointment_ID'] ?? 0); ?>" data-patient-id="<?php echo (int) ($row['Patient_ID'] ?? 0); ?>" data-doctor-id="<?php echo (int) ($row['Doctor_ID'] ?? 0); ?>" data-appointment-date="<?php echo clinic_h($row['Appointment_Date'] ?? ''); ?>" data-status="<?php echo clinic_h($appointmentStatus); ?>">Edit</button>
-                            <form method="post" class="d-inline"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="set_status"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="Status" value="Completed"><input type="hidden" name="return_view" value="<?php echo clinic_h($viewMode); ?>"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-success">Complete</button></form>
-                            <form method="post" class="d-inline"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="set_status"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="Status" value="Cancelled"><input type="hidden" name="return_view" value="<?php echo clinic_h($viewMode); ?>"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-secondary">Cancel</button></form>
-                            <form method="post" class="d-inline appointment-delete-form" data-patient-name="<?php echo clinic_h($row['Patient_Name'] ?? ''); ?>"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="delete_appointment"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="return_view" value="<?php echo clinic_h($viewMode); ?>"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-danger">Delete</button></form>
+                            <a class="btn btn-sm btn-light border" href="appointments.php?<?php echo http_build_query(['print_appointment' => (int) ($row['Appointment_ID'] ?? 0), 'status' => $status]); ?>"><i class="ti ti-printer me-1"></i>Print</a>
+                            <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="modal" data-bs-target="#appointmentModal" data-appointment-mode="edit" data-appointment-id="<?php echo (int) ($row['Appointment_ID'] ?? 0); ?>" data-patient-id="<?php echo (int) ($row['Patient_ID'] ?? 0); ?>" data-doctor-id="<?php echo (int) ($row['Doctor_ID'] ?? 0); ?>" data-appointment-date="<?php echo clinic_h($row['Appointment_Date'] ?? ''); ?>" data-status="<?php echo clinic_h($appointmentStatus); ?>" title="Edit"><i class="ti ti-pencil"></i></button>
+                            <form method="post" class="d-inline"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="set_status"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="Status" value="Completed"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-success">Complete</button></form>
+                            <form method="post" class="d-inline"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="set_status"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="Status" value="Cancelled"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-secondary">Cancel</button></form>
+                            <form method="post" class="d-inline appointment-delete-form" data-patient-name="<?php echo clinic_h($row['Patient_Name'] ?? ''); ?>"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="delete_appointment"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-danger btn-icon" title="Delete"><i class="ti ti-trash"></i></button></form>
                             <?php elseif ($appointmentStatus === 'Completed'): ?>
-                            <a class="btn btn-sm btn-light border" href="appointments.php?<?php echo http_build_query(['print_appointment' => (int) ($row['Appointment_ID'] ?? 0), 'view' => $viewMode, 'status' => $status]); ?>"><i class="ti ti-printer me-1"></i>Print Ticket</a>
+                            <a class="btn btn-sm btn-light border" href="appointments.php?<?php echo http_build_query(['print_appointment' => (int) ($row['Appointment_ID'] ?? 0), 'status' => $status]); ?>"><i class="ti ti-printer me-1"></i>Print Ticket</a>
                             <span class="btn btn-sm btn-light border disabled">Completed locked</span>
                             <?php else: ?>
-                            <a class="btn btn-sm btn-light border" href="appointments.php?<?php echo http_build_query(['print_appointment' => (int) ($row['Appointment_ID'] ?? 0), 'view' => $viewMode, 'status' => $status]); ?>"><i class="ti ti-printer me-1"></i>Print Ticket</a>
-                            <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="modal" data-bs-target="#appointmentModal" data-appointment-mode="edit" data-appointment-id="<?php echo (int) ($row['Appointment_ID'] ?? 0); ?>" data-patient-id="<?php echo (int) ($row['Patient_ID'] ?? 0); ?>" data-doctor-id="<?php echo (int) ($row['Doctor_ID'] ?? 0); ?>" data-appointment-date="<?php echo clinic_h($row['Appointment_Date'] ?? ''); ?>" data-status="<?php echo clinic_h($appointmentStatus); ?>">Edit</button>
-                            <form method="post" class="d-inline appointment-delete-form" data-patient-name="<?php echo clinic_h($row['Patient_Name'] ?? ''); ?>"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="delete_appointment"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="return_view" value="<?php echo clinic_h($viewMode); ?>"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-danger">Delete</button></form>
+                            <a class="btn btn-sm btn-light border" href="appointments.php?<?php echo http_build_query(['print_appointment' => (int) ($row['Appointment_ID'] ?? 0), 'status' => $status]); ?>"><i class="ti ti-printer me-1"></i>Print Ticket</a>
+                            <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="modal" data-bs-target="#appointmentModal" data-appointment-mode="edit" data-appointment-id="<?php echo (int) ($row['Appointment_ID'] ?? 0); ?>" data-patient-id="<?php echo (int) ($row['Patient_ID'] ?? 0); ?>" data-doctor-id="<?php echo (int) ($row['Doctor_ID'] ?? 0); ?>" data-appointment-date="<?php echo clinic_h($row['Appointment_Date'] ?? ''); ?>" data-status="<?php echo clinic_h($appointmentStatus); ?>" title="Edit"><i class="ti ti-pencil"></i></button>
+                            <form method="post" class="d-inline appointment-delete-form" data-patient-name="<?php echo clinic_h($row['Patient_Name'] ?? ''); ?>"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="delete_appointment"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-danger btn-icon" title="Delete"><i class="ti ti-trash"></i></button></form>
                             <?php endif; ?>
                         </div>
                     </td>
@@ -645,66 +619,7 @@ clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled
         </table>
         <?php if ($appointments === []): ?><div class="alert alert-light border text-center mb-0">No appointments found.</div><?php endif; ?>
     </div>
-</div>
-<?php else: ?>
-<div class="row g-3">
-    <?php foreach ($appointments as $row): ?>
-    <?php
-        $appointmentStatus = (string) ($row['Status'] ?? 'Pending');
-        $appointmentStatusClass = strtolower($appointmentStatus);
-    ?>
-    <div class="col-xxl-4 col-xl-4 col-md-6">
-        <div class="appointment-card appointment-card-<?php echo clinic_h($appointmentStatusClass); ?>">
-            <div class="card-body">
-                <div class="appointment-card-head">
-                    <div class="appointment-patient-block">
-                        <span class="appointment-avatar"><?php echo clinic_h(substr((string) ($row['Patient_Name'] ?? 'P'), 0, 1)); ?></span>
-                        <div class="min-w-0">
-                            <div class="appointment-patient-name text-truncate"><?php echo clinic_h($row['Patient_Name'] ?? '-'); ?></div>
-                            <?php echo clinic_status_badge($appointmentStatus); ?>
-                        </div>
-                    </div>
-                    <span class="queue-number-badge">
-                        <small>Queue</small>
-                        <strong>#<?php echo str_pad((string) (int) ($row['Queue_No'] ?? 0), 3, '0', STR_PAD_LEFT); ?></strong>
-                    </span>
-                </div>
-                <div class="appointment-meta">
-                    <div class="appointment-meta-row text-muted small">
-                        <i class="ti ti-stethoscope"></i>
-                        <span class="text-truncate">Doctor: <?php echo clinic_h($row['Doctor_Name'] ?? '-'); ?></span>
-                    </div>
-                    <div class="appointment-meta-row text-muted small">
-                        <i class="ti ti-calendar-time"></i>
-                        <span class="text-truncate"><?php echo clinic_h($row['Appointment_Date'] ?? '-'); ?></span>
-                    </div>
-                </div>
-                <div class="appointment-actions">
-                    <?php if ($appointmentStatus === 'Pending'): ?>
-                    <a class="btn btn-sm btn-primary" href="visits.php?patient_id=<?php echo (int) ($row['Patient_ID'] ?? 0); ?>&appointment_id=<?php echo (int) ($row['Appointment_ID'] ?? 0); ?>">Start Visit</a>
-                    <a class="btn btn-sm btn-light border" href="appointments.php?<?php echo http_build_query(['print_appointment' => (int) ($row['Appointment_ID'] ?? 0), 'view' => $viewMode, 'status' => $status]); ?>"><i class="ti ti-printer me-1"></i>Print</a>
-                    <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="modal" data-bs-target="#appointmentModal" data-appointment-mode="edit" data-appointment-id="<?php echo (int) ($row['Appointment_ID'] ?? 0); ?>" data-patient-id="<?php echo (int) ($row['Patient_ID'] ?? 0); ?>" data-doctor-id="<?php echo (int) ($row['Doctor_ID'] ?? 0); ?>" data-appointment-date="<?php echo clinic_h($row['Appointment_Date'] ?? ''); ?>" data-status="<?php echo clinic_h($appointmentStatus); ?>">Edit</button>
-                    <form method="post" class="d-inline"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="set_status"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="Status" value="Completed"><input type="hidden" name="return_view" value="<?php echo clinic_h($viewMode); ?>"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-success">Complete</button></form>
-                    <form method="post" class="d-inline"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="set_status"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="Status" value="Cancelled"><input type="hidden" name="return_view" value="<?php echo clinic_h($viewMode); ?>"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-secondary">Cancel</button></form>
-                    <form method="post" class="d-inline appointment-delete-form" data-patient-name="<?php echo clinic_h($row['Patient_Name'] ?? ''); ?>"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="delete_appointment"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="return_view" value="<?php echo clinic_h($viewMode); ?>"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-danger">Delete</button></form>
-                    <?php elseif ($appointmentStatus === 'Completed'): ?>
-                    <a class="btn btn-sm btn-light border" href="appointments.php?<?php echo http_build_query(['print_appointment' => (int) ($row['Appointment_ID'] ?? 0), 'view' => $viewMode, 'status' => $status]); ?>"><i class="ti ti-printer me-1"></i>Print Ticket</a>
-                    <span class="btn btn-sm btn-light border disabled">Completed locked</span>
-                    <?php else: ?>
-                    <a class="btn btn-sm btn-light border" href="appointments.php?<?php echo http_build_query(['print_appointment' => (int) ($row['Appointment_ID'] ?? 0), 'view' => $viewMode, 'status' => $status]); ?>"><i class="ti ti-printer me-1"></i>Print Ticket</a>
-                    <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="modal" data-bs-target="#appointmentModal" data-appointment-mode="edit" data-appointment-id="<?php echo (int) ($row['Appointment_ID'] ?? 0); ?>" data-patient-id="<?php echo (int) ($row['Patient_ID'] ?? 0); ?>" data-doctor-id="<?php echo (int) ($row['Doctor_ID'] ?? 0); ?>" data-appointment-date="<?php echo clinic_h($row['Appointment_Date'] ?? ''); ?>" data-status="<?php echo clinic_h($appointmentStatus); ?>">Edit</button>
-                    <form method="post" class="d-inline appointment-delete-form" data-patient-name="<?php echo clinic_h($row['Patient_Name'] ?? ''); ?>"><input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>"><input type="hidden" name="action" value="delete_appointment"><input type="hidden" name="Appointment_ID" value="<?php echo (int) $row['Appointment_ID']; ?>"><input type="hidden" name="return_view" value="<?php echo clinic_h($viewMode); ?>"><input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>"><button class="btn btn-sm btn-outline-danger">Delete</button></form>
-                    <?php endif; ?>
-                </div>
-            </div>
-        </div>
-    </div>
-    <?php endforeach; ?>
-    <?php if ($appointments === []): ?><div class="col-12"><div class="alert alert-light border text-center">No appointments found.</div></div><?php endif; ?>
-</div>
-<?php endif; ?>
-
-<?php if ($printAppointment): ?>
+</div><?php if ($printAppointment): ?>
 <div id="appointmentTicketPrintArea">
     <div class="appointment-ticket">
         <div class="ticket-brand">
@@ -725,21 +640,17 @@ clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled
 </div>
 <?php endif; ?>
 
-<div class="modal fade appointment-modal" id="appointmentModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+<div class="modal fade appointment-modal" id="appointmentModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <form method="post" class="modal-content">
             <div class="modal-header appointment-modal-header">
-                <div>
-                    <h5 class="modal-title mb-1" id="appointmentModalTitle">New Appointment</h5>
-                    <div class="small opacity-75" id="appointmentModalSubtitle">Book an appointment or quickly register a new Maalinle patient.</div>
-                </div>
-                <button class="btn-close btn-close-white" type="button" data-bs-dismiss="modal"></button>
+                <h5 class="modal-title" id="appointmentModalTitle">New Appointment</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body p-4 bg-light">
                 <input type="hidden" name="csrf_token" value="<?php echo clinic_h(clinic_csrf_token()); ?>">
                 <input type="hidden" name="action" value="save_appointment">
                 <input type="hidden" name="Appointment_ID" id="appointmentId" value="0">
-                <input type="hidden" name="return_view" value="<?php echo clinic_h($viewMode); ?>">
                 <input type="hidden" name="return_status" value="<?php echo clinic_h($status); ?>">
                 <div class="appointment-form-card mb-3">
                     <div class="appointment-section-title">
@@ -764,10 +675,10 @@ clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled
                             <div class="quick-patient-box" id="quickPatientBox">
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <div>
-                                        <strong>Quick Add Maalinle Patient</strong>
+                                        <strong>Quick Add Walk-in Patient</strong>
                                         <div class="text-muted small">Only the basic information is needed for a same-day patient.</div>
                                     </div>
-                                    <span class="badge text-bg-info">Maalinle</span>
+                                    <span class="badge text-bg-info">Walk-in</span>
                                 </div>
                                 <div class="row g-3">
                                     <div class="col-md-6">
@@ -802,7 +713,7 @@ clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled
                         <span><i class="ti ti-calendar-time"></i></span>
                         Appointment Details
                     </div>
-                    <div class="alert alert-info py-2 mb-3">
+                    <div class="alert alert-info border border-info py-2 mb-3">
                         Queue ticket is assigned by appointment date and starts again from <strong>#001</strong> every new day.
                     </div>
                     <div class="row g-3">
@@ -825,8 +736,9 @@ clinic_page_start('Appointment Board', 'Manage pending, completed, and cancelled
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-light border" type="button" data-bs-dismiss="modal">Close</button>
-                <button class="btn btn-primary px-4" id="appointmentSubmitButton"><i class="ti ti-device-floppy me-1"></i>Save Appointment</button>
+                <button class="btn btn-danger" type="button" data-bs-dismiss="modal"><i class="ti ti-x me-1"></i>Cancel</button>
+                <button class="btn btn-success" type="submit" id="appointmentBtnUpdate" style="display:none;"><i class="ti ti-edit me-1"></i>Update Appointment</button>
+                <button class="btn btn-primary px-4" type="submit" id="appointmentSubmitButton"><i class="ti ti-device-floppy me-1"></i>Save Appointment</button>
             </div>
         </form>
     </div>
@@ -847,6 +759,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var appointmentSubtitle = document.getElementById('appointmentModalSubtitle');
     var appointmentSubmitButton = document.getElementById('appointmentSubmitButton');
     var shouldPrintAppointment = <?php echo $printAppointment ? 'true' : 'false'; ?>;
+    var prefillPatientId = <?php echo $prefillPatientId > 0 ? $prefillPatientId : 0; ?>;
+    var prefillDoctorId = <?php echo $prefillDoctorId > 0 ? $prefillDoctorId : 0; ?>;
 
     function syncQuickPatientState() {
         var isQuick = box.classList.contains('active');
@@ -901,8 +815,12 @@ document.addEventListener('DOMContentLoaded', function () {
             appointmentId.value = isEdit ? (button.getAttribute('data-appointment-id') || '0') : '0';
             appointmentStatus.value = isEdit ? (button.getAttribute('data-status') || 'Pending') : 'Pending';
             appointmentTitle.textContent = isEdit ? 'Edit Appointment' : 'New Appointment';
-            appointmentSubtitle.textContent = isEdit ? 'Update patient, doctor, or appointment date.' : 'Book an appointment or quickly register a new Maalinle patient.';
-            appointmentSubmitButton.innerHTML = isEdit ? '<i class="ti ti-device-floppy me-1"></i>Update Appointment' : '<i class="ti ti-device-floppy me-1"></i>Save Appointment';
+            if (appointmentSubtitle) {
+                appointmentSubtitle.textContent = isEdit ? 'Update patient, doctor, or appointment date.' : 'Book an appointment or quickly register a new Walk-in patient.';
+            }
+            var btnUpdate = document.getElementById('appointmentBtnUpdate');
+            appointmentSubmitButton.style.display = isEdit ? 'none' : '';
+            if (btnUpdate) { btnUpdate.style.display = isEdit ? '' : 'none'; }
             setStatusBadge(appointmentStatus.value, isEdit);
 
             if (box) {
@@ -916,12 +834,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 patientSelect.value = button.getAttribute('data-patient-id') || '';
                 appointmentDoctor.value = button.getAttribute('data-doctor-id') || '';
                 appointmentDate.value = formatDateForInput(button.getAttribute('data-appointment-date') || '');
+            } else if (prefillPatientId > 0) {
+                patientSelect.value = String(prefillPatientId);
+                if (toggle) {
+                    toggle.classList.add('d-none');
+                }
+            } else if (prefillDoctorId > 0) {
+                appointmentDoctor.value = String(prefillDoctorId);
             }
 
             triggerSelectChange(patientSelect);
             triggerSelectChange(appointmentDoctor);
             syncQuickPatientState();
         });
+
+        if ((prefillPatientId > 0 || prefillDoctorId > 0) && window.bootstrap) {
+            bootstrap.Modal.getOrCreateInstance(appointmentModal).show();
+        }
     }
 
     document.querySelectorAll('.appointment-delete-form').forEach(function (form) {
@@ -946,10 +875,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 });
                 return;
-            }
-            if (confirm('Delete appointment for ' + patientName + '?')) {
-                this.dataset.confirmed = '1';
-                this.submit();
             }
         });
     });

@@ -472,7 +472,7 @@ clinic_page_start('Lab Results', 'Enter results per test. Completed rows show wh
                         <span class="lab-patient-avatar"><?php echo clinic_h(substr((string) ($selectedPatient['Patient_Name'] ?? 'P'), 0, 1)); ?></span>
                         <div>
                             <h5 class="mb-0"><?php echo clinic_h($selectedPatient['Patient_Name'] ?? 'Select Patient'); ?></h5>
-                            <div class="small text-muted">Baaritaannada bukaanka iyo result entry.</div>
+                            <div class="small text-muted">Patient lab tests and result entry.</div>
                         </div>
                     </div>
                     <?php if ($selectedPatient): ?>

@@ -8,7 +8,7 @@ $payments = clinic_sp_rows('sp_payments_list');
 
 $search = trim((string) ($_GET['q'] ?? ''));
 $typeFilter = (string) ($_GET['type'] ?? '');
-if (!in_array($typeFilter, ['Bille', 'Maalinle'], true)) {
+if (!in_array($typeFilter, ['Credit', 'Walk-in'], true)) {
     $typeFilter = '';
 }
 
@@ -120,8 +120,8 @@ $csvDebtQs = http_build_query($queryParamsDebt + ['export' => 'csv']);
                 <label class="form-label small fw-semibold text-muted">Type</label>
                 <select class="form-select" name="type">
                     <option value="">All</option>
-                    <option value="Bille"<?php echo $typeFilter === 'Bille' ? ' selected' : ''; ?>>Bille</option>
-                    <option value="Maalinle"<?php echo $typeFilter === 'Maalinle' ? ' selected' : ''; ?>>Maalinle</option>
+                    <option value="Credit"<?php echo $typeFilter === 'Credit' ? ' selected' : ''; ?>>Credit</option>
+                    <option value="Walk-in"<?php echo $typeFilter === 'Walk-in' ? ' selected' : ''; ?>>Walk-in</option>
                 </select>
             </div>
             <div class="col-md-2">
@@ -176,7 +176,7 @@ $csvDebtQs = http_build_query($queryParamsDebt + ['export' => 'csv']);
                             <span class="d-block small text-muted">#<?php echo (int) ($patient['Patient_ID'] ?? 0); ?></span>
                         </td>
                         <td><?php echo clinic_h($patient['Phone_Number'] ?? '-'); ?></td>
-                        <td><span class="badge text-bg-<?php echo ($patient['Patient_Type'] ?? '') === 'Bille' ? 'info' : 'secondary'; ?>"><?php echo clinic_h($patient['Patient_Type'] ?? '-'); ?></span></td>
+                        <td><span class="badge text-bg-<?php echo ($patient['Patient_Type'] ?? '') === 'Credit' ? 'info' : 'secondary'; ?>"><?php echo clinic_h($patient['Patient_Type'] ?? '-'); ?></span></td>
                         <td><?php echo clinic_h($patient['Guarantor_Name'] ?? '-'); ?></td>
                         <td><?php echo clinic_money($creditLimit); ?> <?php if ($overLimit): ?><span class="badge text-bg-danger ms-1">Over</span><?php endif; ?></td>
                         <td><strong class="text-danger"><?php echo clinic_money($balance); ?></strong></td>
