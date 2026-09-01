@@ -204,7 +204,7 @@ try {
                             <div class="d-flex align-items-center bg-light rounded-3 p-2 mb-2">
                                 <?php echo clinic_avatar($currentUserImage, $currentUserName, 'clinic-avatar clinic-avatar-md rounded-circle'); ?>
                                 <div class="ms-2">
-                                    <p class="fw-medium text-dark mb-0"><?php echo htmlspecialchars($currentUserName, ENT_QUOTES, 'UTF-8'); ?></p>
+                                    <p class="fw-medium mb-0" style="color:var(--bs-body-color)"><?php echo htmlspecialchars($currentUserName, ENT_QUOTES, 'UTF-8'); ?></p>
                                     <span class="d-block fs-13"><?php echo htmlspecialchars($currentUserRole !== '' ? $currentUserRole : 'Clinic user', ENT_QUOTES, 'UTF-8'); ?></span>
                                 </div>
                             </div>

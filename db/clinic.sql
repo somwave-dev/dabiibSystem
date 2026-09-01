@@ -314,26 +314,26 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patients_delete` (IN `p_Patient_
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patients_get` (IN `p_Patient_ID` INT)   BEGIN
-  SELECT `Patient_ID`, `Full_Name`, `Phone_Number`, `Sex`, `Age_Group`, `Patient_Type`, `Guarantor_ID`, `Relationship`, `Credit_Limit`, `Current_Balance`, `image`, `Created_At` FROM `patients` WHERE `Patient_ID` = p_Patient_ID;
+  SELECT `Patient_ID`, `Full_Name`, `Phone_Number`, `Sex`, `Age_Group`, `Patient_Type`, `Guarantor_ID`, `Relationship`, `Credit_Limit`, `Current_Balance`, `Created_At` FROM `patients` WHERE `Patient_ID` = p_Patient_ID;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patients_list` ()   BEGIN
-  SELECT p.`Patient_ID`, p.`Full_Name`, p.`Phone_Number`, p.`Sex`, p.`Age_Group`, p.`Patient_Type`, p.`Guarantor_ID`, g.`Full_Name` AS `Guarantor_Name`, p.`Relationship`, p.`Credit_Limit`, p.`Current_Balance`, p.`image`, p.`Created_At`
+  SELECT p.`Patient_ID`, p.`Full_Name`, p.`Phone_Number`, p.`Sex`, p.`Age_Group`, p.`Patient_Type`, p.`Guarantor_ID`, g.`Full_Name` AS `Guarantor_Name`, p.`Relationship`, p.`Credit_Limit`, p.`Current_Balance`, p.`Created_At`
   FROM `patients` p
   LEFT JOIN `patients` g ON g.`Patient_ID` = p.`Guarantor_ID`
   ORDER BY p.`Patient_ID` DESC;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patients_save` (IN `p_Patient_ID` INT, IN `p_Full_Name` VARCHAR(100), IN `p_Phone_Number` VARCHAR(20), IN `p_Sex` VARCHAR(10), IN `p_Age_Group` VARCHAR(10), IN `p_Patient_Type` VARCHAR(20), IN `p_Guarantor_ID` INT, IN `p_Relationship` VARCHAR(20), IN `p_Credit_Limit` DECIMAL(10,2), IN `p_Current_Balance` DECIMAL(10,2), IN `p_Image` VARCHAR(100))   BEGIN
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patients_save` (IN `p_Patient_ID` INT, IN `p_Full_Name` VARCHAR(100), IN `p_Phone_Number` VARCHAR(20), IN `p_Sex` VARCHAR(10), IN `p_Age_Group` VARCHAR(10), IN `p_Patient_Type` VARCHAR(20), IN `p_Guarantor_ID` INT, IN `p_Relationship` VARCHAR(20), IN `p_Credit_Limit` DECIMAL(10,2), IN `p_Current_Balance` DECIMAL(10,2))   BEGIN
   IF p_Patient_ID IS NULL OR p_Patient_ID = 0 THEN
-    INSERT INTO `patients` (`Full_Name`, `Phone_Number`, `Sex`, `Age_Group`, `Patient_Type`, `Guarantor_ID`, `Relationship`, `Credit_Limit`, `Current_Balance`, `image`) VALUES (p_Full_Name, NULLIF(p_Phone_Number, ''), COALESCE(NULLIF(p_Sex, ''), 'Male'), COALESCE(NULLIF(p_Age_Group, ''), 'Adult'), COALESCE(NULLIF(p_Patient_Type, ''), 'Walk-in'), p_Guarantor_ID, COALESCE(NULLIF(p_Relationship, ''), 'Self'), COALESCE(p_Credit_Limit, 0.00), COALESCE(p_Current_Balance, 0.00), NULLIF(p_Image, ''));
+    INSERT INTO `patients` (`Full_Name`, `Phone_Number`, `Sex`, `Age_Group`, `Patient_Type`, `Guarantor_ID`, `Relationship`, `Credit_Limit`, `Current_Balance`) VALUES (p_Full_Name, NULLIF(p_Phone_Number, ''), COALESCE(NULLIF(p_Sex, ''), 'Male'), COALESCE(NULLIF(p_Age_Group, ''), 'Adult'), COALESCE(NULLIF(p_Patient_Type, ''), 'Walk-in'), p_Guarantor_ID, COALESCE(NULLIF(p_Relationship, ''), 'Self'), COALESCE(p_Credit_Limit, 0.00), COALESCE(p_Current_Balance, 0.00));
   ELSE
-    UPDATE `patients` SET `Full_Name` = p_Full_Name, `Phone_Number` = NULLIF(p_Phone_Number, ''), `Sex` = COALESCE(NULLIF(p_Sex, ''), 'Male'), `Age_Group` = COALESCE(NULLIF(p_Age_Group, ''), 'Adult'), `Patient_Type` = COALESCE(NULLIF(p_Patient_Type, ''), 'Walk-in'), `Guarantor_ID` = p_Guarantor_ID, `Relationship` = COALESCE(NULLIF(p_Relationship, ''), 'Self'), `Credit_Limit` = COALESCE(p_Credit_Limit, 0.00), `Current_Balance` = COALESCE(p_Current_Balance, 0.00), `image` = NULLIF(p_Image, '') WHERE `Patient_ID` = p_Patient_ID;
+    UPDATE `patients` SET `Full_Name` = p_Full_Name, `Phone_Number` = NULLIF(p_Phone_Number, ''), `Sex` = COALESCE(NULLIF(p_Sex, ''), 'Male'), `Age_Group` = COALESCE(NULLIF(p_Age_Group, ''), 'Adult'), `Patient_Type` = COALESCE(NULLIF(p_Patient_Type, ''), 'Walk-in'), `Guarantor_ID` = p_Guarantor_ID, `Relationship` = COALESCE(NULLIF(p_Relationship, ''), 'Self'), `Credit_Limit` = COALESCE(p_Credit_Limit, 0.00), `Current_Balance` = COALESCE(p_Current_Balance, 0.00) WHERE `Patient_ID` = p_Patient_ID;
   END IF;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_patient_profile` (IN `p_Patient_ID` INT)   BEGIN
-  SELECT p.`Patient_ID`, p.`Full_Name`, p.`Phone_Number`, p.`Sex`, p.`Age_Group`, p.`Patient_Type`, p.`Guarantor_ID`, g.`Full_Name` AS `Guarantor_Name`, p.`Relationship`, p.`Credit_Limit`, p.`Current_Balance`, p.`image`, p.`Created_At`,
+  SELECT p.`Patient_ID`, p.`Full_Name`, p.`Phone_Number`, p.`Sex`, p.`Age_Group`, p.`Patient_Type`, p.`Guarantor_ID`, g.`Full_Name` AS `Guarantor_Name`, p.`Relationship`, p.`Credit_Limit`, p.`Current_Balance`, p.`Created_At`,
     (SELECT COUNT(*) FROM `visits` v WHERE v.`Patient_ID` = p.`Patient_ID`) AS `visit_count`,
     (SELECT COUNT(*) FROM `appointments` a WHERE a.`Patient_ID` = p.`Patient_ID`) AS `appointment_count`,
     (SELECT COUNT(*) FROM `payments` py WHERE py.`Patient_ID` = p.`Patient_ID`) AS `payment_count`,
@@ -1091,7 +1091,6 @@ CREATE TABLE `patients` (
   `Relationship` enum('Self','Child','Spouse','Other') DEFAULT 'Self',
   `Credit_Limit` decimal(10,2) DEFAULT 0.00,
   `Current_Balance` decimal(10,2) DEFAULT 0.00,
-  `image` varchar(100) DEFAULT NULL,
   `Created_At` timestamp NOT NULL DEFAULT current_timestamp(),
   `deleted` tinyint(1) DEFAULT 0,
   `Updated_At` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()

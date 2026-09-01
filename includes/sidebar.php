@@ -94,18 +94,26 @@ if (!function_exists('clinic_sidebar_link_active')) {
 $currentUserNo = (int) ($_SESSION['user_no'] ?? $_SESSION['user_id'] ?? 0);
 $isAdmin = (int) ($_SESSION['role_id'] ?? 0) === 1;
 
-/* Sidebar logo (uploaded in System Settings) */
-$sidebarLogo = '';
+/* Sidebar logos (uploaded in System Settings → Branding & Logos) */
+$sidebarLogo = '';      // primary logo (light theme)
+$sidebarLogoDark = '';  // light version shown in dark mode
 try {
     require_once __DIR__ . '/../config/codes.php';
     $sideCo = new Codes();
     $sidebarLogo = (string) $sideCo->setting('site_logo');
+    $sidebarLogoDark = (string) $sideCo->setting('logo_light');
 } catch (Throwable $e) {
     $sidebarLogo = '';
+    $sidebarLogoDark = '';
 }
-if ($sidebarLogo !== '') {
-    if (!preg_match('#^[a-z][a-z0-9+.-]*://#i', $sidebarLogo) && !str_starts_with($sidebarLogo, '/')) {
-        $sidebarLogo = $assetBase . $sidebarLogo;
+if ($sidebarLogoDark === '') {
+    $sidebarLogoDark = $sidebarLogo;
+}
+foreach (['sidebarLogo', 'sidebarLogoDark'] as $logoVar) {
+    if ($$logoVar !== '') {
+        if (!preg_match('#^[a-z][a-z0-9+.-]*://#i', $$logoVar) && !str_starts_with($$logoVar, '/')) {
+            $$logoVar = $assetBase . $$logoVar;
+        }
     }
 }
 
@@ -160,8 +168,8 @@ if ($res) {
                 <img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/logo-small.svg" alt="small logo">
             </a>
             <a href="<?php echo htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8'); ?>index.php" class="dark-logo">
-                <?php if ($sidebarLogo !== ''): ?>
-                    <img src="<?php echo htmlspecialchars($sidebarLogo, ENT_QUOTES, 'UTF-8'); ?>" alt="dark logo">
+                <?php if ($sidebarLogoDark !== ''): ?>
+                    <img src="<?php echo htmlspecialchars($sidebarLogoDark, ENT_QUOTES, 'UTF-8'); ?>" alt="dark logo">
                 <?php else: ?>
                     <img src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>assets/img/logo-white.svg" alt="dark logo">
                 <?php endif; ?>

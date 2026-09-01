@@ -432,7 +432,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $value = trim((string) ($_POST['setting_' . $key] ?? ''));
                     }
 
-                    $value = (string) $value;
+                    $value = ($value === '') ? null : (string) $value;
                     $stmt->bind_param('ss', $key, $value);
                     $stmt->execute();
                 }
@@ -458,7 +458,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $val = trim((string) ($_POST['setting_' . $key] ?? ''));
                 }
-                $val = (string) $val;
+                $val = ($val === '') ? null : (string) $val;
                 $stmt->bind_param('ss', $key, $val);
                 $stmt->execute();
             }
@@ -541,8 +541,18 @@ function clinic_settings_render_field(string $key, array $field, string $value):
             break;
 
         case 'select':
+            $matched = false;
+            foreach (($field['options'] ?? []) as $optValue => $optLabel) {
+                if ((string) $optValue === $value) {
+                    $matched = true;
+                    break;
+                }
+            }
             echo '<label class="form-label" for="' . clinic_h($id) . '">' . clinic_h($label) . '</label>';
             echo '<select class="form-select no-select2" id="' . clinic_h($id) . '" name="' . clinic_h($name) . '">';
+            if (!$matched) {
+                echo '<option value="" selected>— None —</option>';
+            }
             foreach (($field['options'] ?? []) as $optValue => $optLabel) {
                 $selected = (string) $optValue === $value ? ' selected' : '';
                 echo '<option value="' . clinic_h($optValue) . '"' . $selected . '>' . clinic_h($optLabel) . '</option>';

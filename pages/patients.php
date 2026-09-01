@@ -7,24 +7,17 @@ try {
         $action = clinic_post_string('action');
 
         if ($action === 'save_patient') {
-            $image = clinic_post_string('Patient_Image_Current');
-            if (!empty($_FILES['Patient_Image']) && (int) ($_FILES['Patient_Image']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
-                $image = clinic_handle_avatar_upload('Patient_Image');
-            } elseif (clinic_post_string('Patient_Image_Remove') !== '') {
-                $image = '';
-            }
             clinic_sp_exec('sp_patients_save', [
                 clinic_post_int('Patient_ID'),
                 clinic_post_string('Full_Name'),
                 clinic_post_string('Phone_Number'),
                 clinic_post_string('Sex') ?: 'Male',
                 clinic_post_string('Age_Group') ?: 'Adult',
-                clinic_post_string('Patient_Type') ?: 'Maalinle',
+                clinic_post_string('Patient_Type') ?: 'Walk-in',
                 clinic_post_int('Guarantor_ID') ?: null,
                 clinic_post_string('Relationship') ?: 'Self',
                 clinic_post_float('Credit_Limit'),
                 clinic_post_float('Current_Balance'),
-                $image,
             ]);
             clinic_flash('Patient saved successfully.');
             clinic_redirect('patients.php');
@@ -55,6 +48,16 @@ try {
 
 $patients = clinic_sp_rows('sp_patients_list');
 $doctors = clinic_sp_rows('sp_doctors_list');
+
+// AJAX: full patient record for the edit modal (single source of truth).
+if (isset($_GET['ajax']) && (string) $_GET['ajax'] === 'patient') {
+    header('Content-Type: application/json; charset=utf-8');
+    $ajaxId = (int) ($_GET['patient_id'] ?? 0);
+    $ajaxRow = $ajaxId > 0 ? clinic_sp_one('sp_patients_get', [$ajaxId], 'i') : null;
+    echo json_encode($ajaxRow ?: ['ok' => false]);
+    exit;
+}
+
 $profileId = (int) ($_GET['profile_id'] ?? 0);
 $profile = $profileId > 0 ? clinic_sp_one('sp_patient_profile', [$profileId], 'i') : null;
 $timeline = $profileId > 0 ? clinic_sp_rows('sp_patient_timeline', [$profileId], 'i') : [];
@@ -77,8 +80,8 @@ clinic_page_start('Patient Desk');
 
 $totalPatients = count($patients);
 $totalBalance = array_sum(array_map(static fn ($p) => (float) ($p['Current_Balance'] ?? 0), $patients));
-$billeCount = count(array_filter($patients, static fn ($p) => ($p['Patient_Type'] ?? '') === 'Bille'));
-$maalinleCount = $totalPatients - $billeCount;
+$creditCount = count(array_filter($patients, static fn ($p) => ($p['Patient_Type'] ?? '') === 'Credit'));
+$walkinCount = $totalPatients - $creditCount;
 $debtors = count(array_filter($patients, static fn ($p) => (float) ($p['Current_Balance'] ?? 0) > 0));
 
 $profileCloseUrl = 'patients.php?' . http_build_query(['q' => $search, 'type' => $typeFilter]);
@@ -97,7 +100,7 @@ $profileBalance = (float) ($profile['Current_Balance'] ?? 0);
     <div class="row align-items-end">
         <div class="col-xl-9 col-lg-8">
             <div class="d-sm-flex align-items-center p-3">
-                <span class="me-3 flex-shrink-0"><?php echo clinic_avatar($profile['image'] ?? '', $profile['Full_Name'] ?? 'P', 'clinic-avatar-lg'); ?></span>
+                <span class="me-3 flex-shrink-0"><?php echo clinic_avatar('', $profile['Full_Name'] ?? 'P', 'clinic-avatar-lg'); ?></span>
                 <div>
                     <p class="text-primary mb-1 fw-semibold font-monospace">#PT<?php echo str_pad((string) (int) ($profile['Patient_ID'] ?? 0), 4, '0', STR_PAD_LEFT); ?></p>
                     <h4 class="fw-bold mb-1"><?php echo clinic_h($profile['Full_Name'] ?? '-'); ?></h4>
@@ -120,12 +123,11 @@ $profileBalance = (float) ($profile['Current_Balance'] ?? 0);
                         data-phone="<?php echo clinic_h($profile['Phone_Number'] ?? ''); ?>"
                         data-sex="<?php echo clinic_h($profile['Sex'] ?? 'Male'); ?>"
                         data-age-group="<?php echo clinic_h($profile['Age_Group'] ?? 'Adult'); ?>"
-                        data-patient-type="<?php echo clinic_h($profile['Patient_Type'] ?? 'Maalinle'); ?>"
+                        data-patient-type="<?php echo clinic_h($profile['Patient_Type'] ?? 'Walk-in'); ?>"
                         data-guarantor-id="<?php echo (int) ($profile['Guarantor_ID'] ?? 0); ?>"
                         data-relationship="<?php echo clinic_h($profile['Relationship'] ?? 'Self'); ?>"
                         data-credit-limit="<?php echo clinic_h($profile['Credit_Limit'] ?? 0); ?>"
                         data-current-balance="<?php echo clinic_h($profile['Current_Balance'] ?? 0); ?>"
-                        data-image="<?php echo clinic_h($profile['image'] ?? ''); ?>"
                     ><i class="ti ti-edit"></i></button>
                     <button class="btn btn-light border btn-icon" type="button" title="Start Visit" data-bs-toggle="modal" data-bs-target="#visitModal" data-patient="<?php echo (int) $profile['Patient_ID']; ?>" data-name="<?php echo clinic_h($profile['Full_Name'] ?? ''); ?>"><i class="ti ti-stethoscope"></i></button>
                     <form method="post" class="d-inline patient-delete-form" data-patient-name="<?php echo clinic_h($profile['Full_Name'] ?? ''); ?>">
@@ -249,8 +251,8 @@ $profileBalance = (float) ($profile['Current_Balance'] ?? 0);
 <?php else: ?>
 <div class="row g-3 mb-4">
     <?php clinic_metric_card('Total Patients', $totalPatients, 'ti-users', 'primary', 'All registered'); ?>
-    <?php clinic_metric_card('Maalinle', $maalinleCount, 'ti-user', 'info', 'Outpatient / walk-in'); ?>
-    <?php clinic_metric_card('Bille (Credit)', $billeCount, 'ti-wallet', 'warning', 'On-credit patients'); ?>
+    <?php clinic_metric_card('Walk-in', $walkinCount, 'ti-user', 'info', 'Outpatient / walk-in'); ?>
+    <?php clinic_metric_card('Credit', $creditCount, 'ti-wallet', 'warning', 'On-credit patients'); ?>
     <?php clinic_metric_card('Balance Owed', clinic_money($totalBalance), 'ti-currency-dollar', 'danger', $debtors . ' debtor(s)'); ?>
 </div>
 <style>
@@ -343,18 +345,6 @@ $profileBalance = (float) ($profile['Current_Balance'] ?? 0);
         position: absolute;
         width: 46%;
     }
-    .patient-profile-photo {
-        align-items: center;
-        background: var(--primary-transparent);
-        border-radius: 12px;
-        color: var(--primary);
-        display: inline-flex;
-        font-size: 2rem;
-        font-weight: 900;
-        height: 96px;
-        justify-content: center;
-        width: 96px;
-    }
     .patient-profile-hero-content {
         position: relative;
         z-index: 1;
@@ -400,8 +390,8 @@ $profileBalance = (float) ($profile['Current_Balance'] ?? 0);
         <input class="form-control" type="search" name="q" value="<?php echo clinic_h($search); ?>" placeholder="Search patient or phone">
         <select class="form-select" name="type">
             <option value="">All types</option>
-            <option value="Bille"<?php echo $typeFilter === 'Bille' ? ' selected' : ''; ?>>Bille</option>
-            <option value="Maalinle"<?php echo $typeFilter === 'Maalinle' ? ' selected' : ''; ?>>Maalinle</option>
+            <option value="Credit"<?php echo $typeFilter === 'Credit' ? ' selected' : ''; ?>>Credit</option>
+            <option value="Walk-in"<?php echo $typeFilter === 'Walk-in' ? ' selected' : ''; ?>>Walk-in</option>
         </select>
         <button class="btn btn-light border" type="submit"><i class="ti ti-filter me-1"></i>Filter</button>
     </form>
@@ -438,14 +428,14 @@ $profileBalance = (float) ($profile['Current_Balance'] ?? 0);
                     <td><span class="badge text-bg-light border font-monospace">PAT-<?php echo str_pad((string) (int) ($patient['Patient_ID'] ?? 0), 6, '0', STR_PAD_LEFT); ?></span></td>
                     <td>
                         <div class="d-flex align-items-center gap-2">
-                            <?php echo clinic_avatar($patient['image'] ?? '', $patient['Full_Name'] ?? 'P', 'clinic-avatar-sm'); ?>
+                            <?php echo clinic_avatar('', $patient['Full_Name'] ?? 'P', 'clinic-avatar-sm'); ?>
                             <div class="fw-semibold"><?php echo clinic_h($patient['Full_Name'] ?? '-'); ?></div>
                         </div>
                     </td>
                     <td><?php echo clinic_h($patient['Phone_Number'] ?? 'No phone'); ?></td>
                     <td><?php echo clinic_h($patient['Sex'] ?? '-'); ?></td>
                     <td><?php echo clinic_h($patient['Age_Group'] ?? '-'); ?></td>
-                    <td><span class="badge text-bg-<?php echo $patient['Patient_Type'] === 'Bille' ? 'info' : 'secondary'; ?>"><?php echo clinic_h($patient['Patient_Type'] ?? '-'); ?></span></td>
+                    <td><span class="badge text-bg-<?php echo $patient['Patient_Type'] === 'Credit' ? 'info' : 'secondary'; ?>"><?php echo clinic_h($patient['Patient_Type'] ?? '-'); ?></span></td>
                     <td><?php echo clinic_money($patient['Credit_Limit'] ?? 0); ?></td>
                     <td><strong class="<?php echo $balance > 0 ? 'text-danger' : 'text-success'; ?>"><?php echo clinic_money($balance); ?></strong></td>
                     <td class="text-end">
@@ -461,12 +451,11 @@ $profileBalance = (float) ($profile['Current_Balance'] ?? 0);
                             data-phone="<?php echo clinic_h($patient['Phone_Number'] ?? ''); ?>"
                             data-sex="<?php echo clinic_h($patient['Sex'] ?? 'Male'); ?>"
                             data-age-group="<?php echo clinic_h($patient['Age_Group'] ?? 'Adult'); ?>"
-                            data-patient-type="<?php echo clinic_h($patient['Patient_Type'] ?? 'Maalinle'); ?>"
+                            data-patient-type="<?php echo clinic_h($patient['Patient_Type'] ?? 'Walk-in'); ?>"
                             data-guarantor-id="<?php echo (int) ($patient['Guarantor_ID'] ?? 0); ?>"
                             data-relationship="<?php echo clinic_h($patient['Relationship'] ?? 'Self'); ?>"
                             data-credit-limit="<?php echo clinic_h($patient['Credit_Limit'] ?? 0); ?>"
-                            data-current-balance="<?php echo clinic_h($patient['Current_Balance'] ?? 0); ?>"
-                            data-image="<?php echo clinic_h($patient['image'] ?? ''); ?>"
+                            data-current-balance="<?php echo clinic_h($patient['Current_Balance'] ?? 0); ?>"
                          title="Edit"><i class="ti ti-pencil"></i></button>
                         <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#visitModal" data-patient="<?php echo (int) $patient['Patient_ID']; ?>" data-name="<?php echo clinic_h($patient['Full_Name']); ?>">Start Visit</button>
                         <form method="post" class="d-inline patient-delete-form" data-patient-name="<?php echo clinic_h($patient['Full_Name'] ?? ''); ?>">
@@ -497,25 +486,14 @@ $profileBalance = (float) ($profile['Current_Balance'] ?? 0);
                     <div class="col-md-6 mb-3"><label class="form-label">Phone</label><input class="form-control" name="Phone_Number"></div>
                     <div class="col-md-4 mb-3"><label class="form-label">Sex</label><select class="form-select" name="Sex"><option selected>Male</option><option>Female</option></select></div>
                     <div class="col-md-4 mb-3"><label class="form-label">Age</label><select class="form-select" name="Age_Group"><option>Child</option><option selected>Adult</option></select></div>
-                    <div class="col-md-4 mb-3"><label class="form-label">Type</label><select class="form-select" name="Patient_Type"><option>Bille</option><option selected>Maalinle</option></select></div>
+                    <div class="col-md-4 mb-3"><label class="form-label">Type</label><select class="form-select" name="Patient_Type"><option>Credit</option><option selected>Walk-in</option></select></div>
                     <div class="col-md-4 mb-3"><label class="form-label">Relationship</label><select class="form-select" name="Relationship"><option>Self</option><option>Child</option><option>Spouse</option><option>Other</option></select></div>
                     <div class="col-md-4 mb-3"><label class="form-label">Guarantor</label><select class="form-select" name="Guarantor_ID"><option value="">None</option><?php clinic_select_options(clinic_sp_rows('sp_patients_list'), 'Patient_ID', 'Full_Name'); ?></select></div>
                     <div class="col-md-6 mb-3"><label class="form-label">Credit limit</label><input class="form-control" type="number" step="0.01" name="Credit_Limit" value="0"></div>
-                    <div class="col-md-6 mb-3"><label class="form-label">Opening balance</label><input class="form-control" type="number" step="0.01" name="Current_Balance" value="0"></div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label">Photo</label>
-                        <input class="form-control" type="file" name="Patient_Image" accept="image/png,image/jpeg,image/gif,image/webp">
-                        <input type="hidden" name="Patient_Image_Current" value="">
-                        <input type="hidden" name="Patient_Image_Remove" value="">
-                        <div class="form-check mt-2 d-none" id="patientImageRemoveWrap">
-                            <input class="form-check-input" type="checkbox" id="patientImageRemoveCheck" onchange="var f=document.querySelector('input[name=Patient_Image_Remove]'); if(f){f.value=this.checked?'1':'';}">
-                            <label class="form-check-label" for="patientImageRemoveCheck">Remove current photo</label>
-                        </div>
-                        <div class="form-text">Optional — JPEG, PNG, GIF, WebP (max 2MB).</div>
-                    </div>
+                    <div class="col-md-6 mb-3"><label class="form-label">Opening balance</label><input class="form-control" type="number" step="0.01" name="Current_Balance" value="0"></div>
                 </div>
             </div>
-            <div class="modal-footer"><button class="btn btn-danger" type="button" data-bs-dismiss="modal"><i class="ti ti-x me-1"></i>Cancel</button><button class="btn btn-success" type="submit" id="patientModalUpdate" style="display:none;"><i class="ti ti-edit me-1"></i>Update Patient</button><button class="btn btn-primary" type="submit" id="patientModalSubmit"><i class="ti ti-device-floppy me-1"></i>Save Patient</button></div>
+            <div class="modal-footer"><button class="btn btn-danger" type="button" data-bs-dismiss="modal"><i class="ti ti-x me-1"></i>Cancel</button><button class="btn btn-primary" type="submit" id="patientModalSubmit"><i class="ti ti-device-floppy me-1"></i>Save Patient</button></div>
         </form>
     </div>
 </div>
@@ -538,12 +516,10 @@ $profileBalance = (float) ($profile['Current_Balance'] ?? 0);
     </div>
 </div>
 
-
-
 <script>
 document.addEventListener('show.bs.modal', function (event) {
-    var trigger = event.reltedTarget;
-    if (!trigger) return;a
+    var trigger = event.relatedTarget;
+    if (!trigger) return;
     var patient = trigger.getAttribute('data-patient') || '';
     var name = trigger.getAttribute('data-name') || '';
     if (event.target.id === 'patientModal') {
@@ -563,21 +539,13 @@ document.addEventListener('show.bs.modal', function (event) {
         setField('Patient_ID', '0');
         setField('Sex', 'Male');
         setField('Age_Group', 'Adult');
-        setField('Patient_Type', 'Maalinle');
+        setField('Patient_Type', 'Walk-in');
         setField('Relationship', 'Self');
         setField('Credit_Limit', '0');
         setField('Current_Balance', '0');
         title.textContent = 'Register patient';
         submit.textContent = 'Save Patient';
-
-        var imgCur = form.elements['Patient_Image_Current'];
-        var imgRem = form.elements['Patient_Image_Remove'];
-        var imgWrap = document.getElementById('patientImageRemoveWrap');
-        var imgCheck = document.getElementById('patientImageRemoveCheck');
-        if (imgCur) { imgCur.value = ''; }
-        if (imgRem) { imgRem.value = ''; }
-        if (imgCheck) { imgCheck.checked = false; }
-        if (imgWrap) { imgWrap.classList.add('d-none'); }
+
 
         if (trigger.getAttribute('data-patient-mode') === 'edit') {
             setField('Patient_ID', trigger.getAttribute('data-patient-id') || '0');
@@ -585,19 +553,38 @@ document.addEventListener('show.bs.modal', function (event) {
             setField('Phone_Number', trigger.getAttribute('data-phone') || '');
             setField('Sex', trigger.getAttribute('data-sex') || 'Male');
             setField('Age_Group', trigger.getAttribute('data-age-group') || 'Adult');
-            setField('Patient_Type', trigger.getAttribute('data-patient-type') || 'Maalinle');
+            setField('Patient_Type', trigger.getAttribute('data-patient-type') || 'Walk-in');
             setField('Guarantor_ID', trigger.getAttribute('data-guarantor-id') || '');
             setField('Relationship', trigger.getAttribute('data-relationship') || 'Self');
             setField('Credit_Limit', trigger.getAttribute('data-credit-limit') || '0');
             setField('Current_Balance', trigger.getAttribute('data-current-balance') || '0');
-            if (imgCur) { imgCur.value = trigger.getAttribute('data-image') || ''; }
-            if (imgRem) { imgRem.value = ''; }
-            if (imgCheck) { imgCheck.checked = false; }
-            if (imgWrap) { imgWrap.classList.toggle('d-none', !(imgCur && imgCur.value)); }
+
+            // Fetch the full, fresh record from the server (single source of truth).
+            var pid = trigger.getAttribute('data-patient-id');
+            if (pid) {
+                fetch('patients.php?ajax=patient&patient_id=' + encodeURIComponent(pid))
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (!data || data.ok === false) { return; }
+                        setField('Patient_ID', data.Patient_ID || '0');
+                        setField('Full_Name', data.Full_Name || '');
+                        setField('Phone_Number', data.Phone_Number || '');
+                        setField('Sex', data.Sex || 'Male');
+                        setField('Age_Group', data.Age_Group || 'Adult');
+                        setField('Patient_Type', data.Patient_Type || 'Walk-in');
+                        setField('Guarantor_ID', data.Guarantor_ID || '');
+                        setField('Relationship', data.Relationship || 'Self');
+                        setField('Credit_Limit', data.Credit_Limit || '0');
+                        setField('Current_Balance', data.Current_Balance || '0');
+                    })
+                    .catch(function () {});
+            }
+
             title.textContent = 'Update patient';
             submit.textContent = 'Update Patient';
         }
     }
+
     if (event.target.id === 'visitModal') {
         document.getElementById('visitPatientId').value = patient;
         document.getElementById('visitPatientName').textContent = name ? '- ' + name : '';
