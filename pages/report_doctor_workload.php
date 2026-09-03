@@ -9,7 +9,7 @@ if (!in_array($bucket, ['day', 'week', 'month'], true)) {
     $bucket = 'month';
 }
 
-$visits = clinic_sp_rows('sp_visits_list');
+$visits = clinic_doctor_scoped_list('sp_visits_list');
 $rows = clinic_report_doctor_workload_rows($visits, $boundFrom, $boundTo, $bucket);
 
 if ((string) ($_GET['export'] ?? '') === 'csv') {

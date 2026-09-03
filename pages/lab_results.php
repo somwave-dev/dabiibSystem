@@ -77,7 +77,7 @@ try {
     clinic_redirect('lab_results.php');
 }
 
-$visits = clinic_sp_rows('sp_visits_list');
+$visits = clinic_doctor_scoped_list('sp_visits_list');
 $visitMap = [];
 foreach ($visits as $visit) {
     $visitMap[(int) $visit['Visit_ID']] = $visit;
@@ -88,7 +88,7 @@ foreach (clinic_sp_rows('sp_lab_tests_list') as $test) {
     $labTestMap[(int) ($test['Test_ID'] ?? 0)] = $test;
 }
 
-$allRows = clinic_sp_rows('sp_lab_results_list');
+$allRows = clinic_doctor_scoped_list('sp_lab_results_list');
 foreach ($allRows as &$row) {
     $visit = $visitMap[(int) ($row['Visit_ID'] ?? 0)] ?? [];
     $test = $labTestMap[(int) ($row['Test_ID'] ?? 0)] ?? [];

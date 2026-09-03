@@ -24,6 +24,7 @@ function clinic_reports_catalog(): array
                 ['file' => 'report_patient_debt.php', 'title' => 'Patient Debt', 'icon' => 'ti-report-money', 'blurb' => 'Outstanding patient balances and collection actions.'],
                 ['file' => 'report_accounts_receivable.php', 'title' => 'Accounts Receivable', 'icon' => 'ti-file-invoice', 'blurb' => 'Patients with balance due and credit limits.'],
                 ['file' => 'report_guarantor_liability.php', 'title' => 'Guarantor Liability', 'icon' => 'ti-user-shield', 'blurb' => 'Outstanding debt grouped by guarantor.'],
+                ['file' => 'report_charges.php', 'title' => 'Charges & Bills', 'icon' => 'ti-receipt-2', 'blurb' => 'Billed services, paid vs unpaid, and provider earnings.'],
                 ['file' => 'report_payment_methods.php', 'title' => 'Payment Methods', 'icon' => 'ti-credit-card', 'blurb' => 'Collections by EVC, eDahab, cash, or bank.'],
                 ['file' => 'report_account_transfers_audit.php', 'title' => 'Account Transfers', 'icon' => 'ti-arrows-exchange', 'blurb' => 'Audit trail of internal account movements.'],
             ],

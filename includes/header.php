@@ -8,7 +8,7 @@ $assetBase = $GLOBALS['asset_base'] ?? '';
 $appBase = $GLOBALS['app_base'] ?? '';
 $currentUserName = (string) ($_SESSION['username'] ?? 'User');
 $currentUserRole = (string) ($_SESSION['role_name'] ?? 'Clinic user');
-$currentUserImage = (string) ($_SESSION['user_image'] ?? 'default-user.png');
+$currentUserImage = clinic_current_user_avatar();
 
 // Notifications for the topbar bell (safe: never breaks the layout).
 $headerUnread = 0;
@@ -34,7 +34,10 @@ $headerLogoDarkUrl = '';
 try {
     require_once __DIR__ . '/../config/codes.php';
     $brandingCo = new Codes();
-    $brandingPrimary = (string) $brandingCo->setting('site_logo');
+    $brandingPrimary = (string) $brandingCo->setting('logo_dark');
+    if ($brandingPrimary === '') {
+        $brandingPrimary = (string) $brandingCo->setting('site_logo');
+    }
     $brandingLight = (string) $brandingCo->setting('logo_light');
     $headerLogoUrl = $brandingPrimary === '' ? '' : (preg_match('#^[a-z][a-z0-9+.-]*://#i', $brandingPrimary) || str_starts_with($brandingPrimary, '/') ? $brandingPrimary : $assetBase . $brandingPrimary);
     $darkLogo = $brandingLight !== '' ? $brandingLight : $brandingPrimary;
@@ -160,7 +163,15 @@ try {
 											<?php $hnType = (string) ($hn['type'] ?? 'info'); ?>
 											<?php $hnIcon = ['success' => 'ti-circle-check', 'warning' => 'ti-alert-triangle', 'danger' => 'ti-alert-octagon', 'info' => 'ti-info-circle'][$hnType] ?? 'ti-info-circle'; ?>
 											<?php $hnColor = ['success' => 'bg-success', 'warning' => 'bg-warning', 'danger' => 'bg-danger', 'info' => 'bg-info'][$hnType] ?? 'bg-info'; ?>
-											<div class="dropdown-item notification-item py-3 text-wrap border-bottom">
+											<div class="dropdown-item notification-item py-3 text-wrap border-bottom clinic-notif-open" role="button" tabindex="0"
+												data-nid="<?php echo (int) ($hn['notification_id'] ?? 0); ?>"
+												data-title="<?php echo htmlspecialchars((string) ($hn['title'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+												data-message="<?php echo htmlspecialchars((string) ($hn['message'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+												data-created="<?php echo htmlspecialchars((string) ($hn['created_at'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+												data-type="<?php echo htmlspecialchars($hnType, ENT_QUOTES, 'UTF-8'); ?>"
+												data-read="<?php echo (int) ($hn['is_read'] ?? 0); ?>"
+												data-link="<?php echo htmlspecialchars((string) ($hn['link'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+												title="View notification" style="cursor:pointer;">
 												<div class="d-flex">
 													<div class="me-2 position-relative flex-shrink-0">
 														<span class="d-inline-flex align-items-center justify-content-center rounded-circle text-white <?php echo $hnColor; ?>" style="width:40px;height:40px"><i class="ti <?php echo $hnIcon; ?> fs-18"></i></span>
@@ -232,5 +243,131 @@ try {
             </div>
         </header>
         <!-- Topbar End -->
+
+        <!-- Notification View Modal -->
+        <div class="modal fade" id="notifViewModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="ti ti-bell me-1 text-primary"></i>Notification</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="d-flex gap-3 align-items-start mb-3">
+                            <span id="nvIcon" class="badge rounded-circle d-flex align-items-center justify-content-center text-white" style="width:3rem;height:3rem;flex-shrink:0;"></span>
+                            <div class="min-w-0 flex-grow-1">
+                                <h6 class="mb-1 text-break" id="nvTitle"></h6>
+                                <div class="small text-muted" id="nvMeta"></div>
+                            </div>
+                        </div>
+                        <p class="mb-0 text-break" id="nvMsg" style="white-space:pre-line;color:var(--bs-body-color);"></p>
+                    </div>
+                    <div class="modal-footer d-flex flex-wrap justify-content-between gap-2">
+                        <span id="nvState" class="badge"></span>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a id="nvOpenLink" href="#" class="btn btn-primary btn-sm d-none"><i class="ti ti-external-link me-1"></i>Open</a>
+                            <button id="nvMarkBtn" type="button" class="btn btn-outline-secondary btn-sm d-none"><i class="ti ti-eye me-1"></i>Mark as read</button>
+                            <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script>
+        (function () {
+            'use strict';
+            var ICONS = { success: 'ti-circle-check', warning: 'ti-alert-triangle', danger: 'ti-alert-octagon', info: 'ti-info-circle' };
+            var COLORS = { success: 'bg-success', warning: 'bg-warning', danger: 'bg-danger', info: 'bg-info' };
+            var LABELS = { success: 'Success', warning: 'Warning', danger: 'Danger', info: 'Info' };
+            var modalEl = document.getElementById('notifViewModal');
+            if (!modalEl || typeof bootstrap === 'undefined') { return; }
+            var curId = 0;
+            var markUrl = <?php echo json_encode($appBase . 'pages/notifications.php'); ?>;
+
+            function showNotif(id, title, message, created, type, read, link) {
+                curId = parseInt(id, 10) || 0;
+                type = type || 'info';
+                var icon = modalEl.querySelector('#nvIcon');
+                icon.className = 'badge rounded-circle d-flex align-items-center justify-content-center text-white ' + (COLORS[type] || COLORS.info);
+                icon.style.width = '3rem';
+                icon.style.height = '3rem';
+                icon.style.flexShrink = '0';
+                icon.innerHTML = '<i class="ti ' + (ICONS[type] || ICONS.info) + ' fs-20"></i>';
+                modalEl.querySelector('#nvTitle').textContent = title || 'Notification';
+                modalEl.querySelector('#nvMsg').textContent = message || '';
+                var meta = modalEl.querySelector('#nvMeta');
+                meta.innerHTML = '';
+                if (created) {
+                    var ct = document.createElement('span');
+                    ct.innerHTML = '<i class="ti ti-clock me-1"></i>';
+                    ct.appendChild(document.createTextNode(String(created)));
+                    ct.classList.add('me-3');
+                    meta.appendChild(ct);
+                }
+                var tt = document.createElement('span');
+                tt.innerHTML = '<i class="ti ti-tag me-1"></i>';
+                tt.appendChild(document.createTextNode(LABELS[type] || 'Info'));
+                meta.appendChild(tt);
+                var state = modalEl.querySelector('#nvState');
+                state.className = 'badge ' + (read ? 'text-bg-light' : 'text-bg-warning');
+                state.textContent = read ? 'Read' : 'New';
+                var lnk = modalEl.querySelector('#nvOpenLink');
+                if (link) { lnk.href = link; lnk.classList.remove('d-none'); }
+                else { lnk.href = '#'; lnk.classList.add('d-none'); }
+                var mark = modalEl.querySelector('#nvMarkBtn');
+                if (!read && curId > 0) { mark.classList.remove('d-none'); }
+                else { mark.classList.add('d-none'); }
+                bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            }
+
+            function updateBadge(delta) {
+                var b = document.querySelector('.notification-badge');
+                if (!b) { return; }
+                var n = parseInt(b.textContent, 10) || 0;
+                n = Math.max(0, n + delta);
+                b.textContent = n > 0 ? String(n) : '';
+            }
+
+            document.addEventListener('click', function (event) {
+                var el = event.target.closest ? event.target.closest('.clinic-notif-open') : null;
+                if (!el) { return; }
+                if (event.target.closest('a, button, form')) { return; }
+                showNotif(el.getAttribute('data-nid'), el.getAttribute('data-title'), el.getAttribute('data-message'), el.getAttribute('data-created'), el.getAttribute('data-type'), el.getAttribute('data-read') === '1', el.getAttribute('data-link'));
+                var menu = el.closest('.dropdown-menu');
+                if (menu && bootstrap.Dropdown) {
+                    var trig = menu.previousElementSibling;
+                    var dd = trig ? bootstrap.Dropdown.getInstance(trig) : null;
+                    if (dd) { dd.hide(); }
+                }
+            });
+
+            var markBtn = document.getElementById('nvMarkBtn');
+            if (markBtn) {
+                markBtn.addEventListener('click', function () {
+                    if (!curId) { return; }
+                    markBtn.disabled = true;
+                    fetch(markUrl + '?ajax=mark_read&id=' + encodeURIComponent(curId), { headers: { 'X-Requested-With': 'fetch' } })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            if (data && data.ok) {
+                                var st = modalEl.querySelector('#nvState');
+                                st.className = 'badge text-bg-light';
+                                st.textContent = 'Read';
+                                markBtn.classList.add('d-none');
+                                updateBadge(-1);
+                                var openers = document.querySelectorAll('.clinic-notif-open[data-nid="' + curId + '"]');
+                                openers.forEach(function (o) {
+                                    o.setAttribute('data-read', '1');
+                                    var nb = o.querySelector('.badge.text-bg-warning');
+                                    if (nb) { nb.textContent = ''; nb.classList.remove('text-bg-warning'); }
+                                });
+                            }
+                        })
+                        .catch(function () {})
+                        .finally(function () { markBtn.disabled = false; });
+                });
+            }
+        })();
+        </script>
 
    

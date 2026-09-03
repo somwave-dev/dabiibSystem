@@ -30,6 +30,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     $credential = '';
     $notes = '';
     $status = 'active';
+    $salary = 0;
+    $hireDate = null;
     try {
         clinic_check_csrf();
         $action = clinic_post_string('action');
@@ -60,6 +62,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $credType = clinic_post_string('Credential_Type');
         $notes = clinic_post_string('Notes');
         $status = clinic_post_string('status') ?: 'active';
+        $salary = clinic_post_float('Salary');
+        $hireDate = trim(clinic_post_string('Hire_Date'));
         $isDoctor = clinic_post_string('is_doctor') === '1';
 
         if ($fullName === '') {
@@ -86,6 +90,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 $credType,
                 $notes,
                 $status,
+                $salary,
+                $hireDate !== '' ? $hireDate : null,
+                $staffId > 0 ? null : clinic_current_user_id(),
             ]
         );
         $staffId = $staffId ?: $savedId;
@@ -136,6 +143,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 'Credential_Or_Badge' => $credential ?? '',
                 'Credential_Type' => $credType ?? '',
                 'Notes' => $notes ?? '',
+                'Salary' => $salary ?? 0,
+                'Hire_Date' => $hireDate ?? null,
                 'status' => $status ?? 'active',
                 'Created_At' => null,
             ];
@@ -230,6 +239,7 @@ $inactiveStaff = $totalStaff - $activeStaff;
                         <th>Credential / ID</th>
                         <th>Phone</th>
                         <th>Email</th>
+                        <th>Salary</th>
                         <th>Status</th>
                         <th class="text-end">Actions</th>
                     </tr>
@@ -264,6 +274,7 @@ $inactiveStaff = $totalStaff - $activeStaff;
                         <td class="small"><?php echo clinic_staff_profile_summary($s); ?></td>
                         <td><?php echo clinic_h((string) ($s['Phone_Number'] ?? '')) ?: '—'; ?></td>
                         <td class="text-break"><?php echo clinic_h((string) ($s['Email'] ?? '')) ?: '—'; ?></td>
+                        <td><?php $__sal = (float) ($s['Salary'] ?? 0); echo $__sal > 0 ? clinic_money($__sal) : '—'; ?></td>
                         <td><?php echo clinic_status_badge((string) ($s['status'] ?? 'active')); ?></td>
                         <td class="text-end">
                             <?php
@@ -297,6 +308,9 @@ $inactiveStaff = $totalStaff - $activeStaff;
                                 data-notes="<?php echo clinic_h((string) ($s['Notes'] ?? '')); ?>"
                                 data-created-at="<?php echo clinic_h((string) ($s['Created_At'] ?? '')); ?>"
                                 data-last-login="<?php echo clinic_h((string) ($s['Last_Login'] ?? '')); ?>"
+                                data-salary="<?php echo clinic_h((string) ($s['Salary'] ?? 0)); ?>"
+                                data-hire-date="<?php echo clinic_h((string) ($s['Hire_Date'] ?? '')); ?>"
+                                data-created-by="<?php echo clinic_h((string) ($s['Created_By_Name'] ?? '')); ?>"
                                 data-image="<?php echo clinic_h($rowImageUrl); ?>"
                             ><i class="ti ti-eye"></i></button>
                             <a class="btn btn-sm btn-light border btn-icon" title="Edit" href="staff.php?edit=<?php echo $sid; ?>"><i class="ti ti-pencil"></i></a>
@@ -310,7 +324,7 @@ $inactiveStaff = $totalStaff - $activeStaff;
                     </tr>
                     <?php endforeach; ?>
                     <?php if ($staffRows === []): ?>
-                    <tr><td colspan="8" class="text-center text-muted py-4">No staff registered yet.</td></tr>
+                    <tr><td colspan="9" class="text-center text-muted py-4">No staff registered yet.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
@@ -360,6 +374,17 @@ $inactiveStaff = $totalStaff - $activeStaff;
                     <div class="col-md-6 mb-3">
                         <label class="form-label" for="staff_email">Email</label>
                         <input class="form-control" id="staff_email" name="Email" type="email" value="<?php echo clinic_h((string) ($editRow['Email'] ?? '')); ?>">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" for="staff_salary">Salary</label>
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input class="form-control" id="staff_salary" name="Salary" type="number" step="0.01" min="0" value="<?php echo clinic_h(isset($editRow['Salary']) && $editRow['Salary'] !== '' ? (string) (float) $editRow['Salary'] : '0'); ?>">
+                        </div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" for="staff_hire_date">Hire date</label>
+                        <input class="form-control" id="staff_hire_date" name="Hire_Date" type="date" value="<?php echo clinic_h((string) ($editRow['Hire_Date'] ?? '')); ?>">
                     </div>
                     <div class="col-md-6 mb-3">
                         <label class="form-label" for="staff_status">Status</label>
@@ -474,12 +499,24 @@ $inactiveStaff = $totalStaff - $activeStaff;
                         <div class="text-break" id="svEmail"></div>
                     </div>
                     <div class="col-md-6">
-                        <div class="form-label small text-muted mb-0">Registered On</div>
+                        <div class="form-label small text-muted mb-0">Salary</div>
+                        <div class="fw-semibold" id="svSalary"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-label small text-muted mb-0">Hire Date</div>
+                        <div class="fw-semibold" id="svHireDate"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-label small text-muted mb-0">Date Created</div>
                         <div class="fw-semibold" id="svCreatedAt"></div>
                     </div>
                     <div class="col-md-6">
                         <div class="form-label small text-muted mb-0">Last Login</div>
                         <div class="fw-semibold" id="svLastLogin"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-label small text-muted mb-0">Created By</div>
+                        <div class="fw-semibold" id="svCreatedBy"></div>
                     </div>
                 </div>
                 <div class="staff-prof-block mt-3" id="svDocBlock" style="display:none;">
@@ -611,6 +648,15 @@ document.addEventListener('show.bs.modal', function (event) {
   }
   set('svCreatedAt', fmtDT(val('data-created-at')));
   set('svLastLogin', fmtDT(val('data-last-login')));
+  set('svSalary', (val('data-salary') !== '' && parseFloat(val('data-salary')) > 0) ? '$' + parseFloat(val('data-salary')).toFixed(2) : '—');
+  set('svHireDate', (function () {
+    var h = val('data-hire-date');
+    if (!h) { return '—'; }
+    var hd = new Date(String(h).replace(' ', 'T'));
+    if (isNaN(hd.getTime())) { return h; }
+    return hd.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  })());
+  set('svCreatedBy', val('data-created-by') ? '@' + val('data-created-by') : '—');
 
   document.getElementById('svDocBlock').style.display = val('data-spec') ? '' : 'none';
   document.getElementById('svCredBlock').style.display = (val('data-cred-type') || val('data-cred-id')) ? '' : 'none';

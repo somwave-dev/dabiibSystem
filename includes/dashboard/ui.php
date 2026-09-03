@@ -8,8 +8,11 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../advanced_components.php';
 
-function clinic_dash_kpi(string $label, string $value, string $icon, string $color, string $href, string $hint = ''): void
+function clinic_dash_kpi(string $label, string $value, string $icon, string $color, string $href, string $hint = '', ?string $widgetKey = null): void
 {
+    if ($widgetKey !== null && !clinic_can_widget($widgetKey)) {
+        return; // widget not granted: no markup, no data output
+    }
     $color = in_array($color, ['primary', 'info', 'success', 'warning', 'danger', 'secondary'], true) ? $color : 'primary';
     $bg = [
         'primary' => 'bg-primary-subtle text-primary',
@@ -63,8 +66,11 @@ function clinic_dash_card_close(): void
 
 /*__UI2__*/
 
-function clinic_dash_chart(string $id, string $title, string $subtitle = '', int $span = 6, string $size = 'md'): void
+function clinic_dash_chart(string $id, string $title, string $subtitle = '', int $span = 6, string $size = 'md', ?string $widgetKey = null): void
 {
+    if ($widgetKey !== null && !clinic_can_widget($widgetKey)) {
+        return; // chart not granted: container not rendered
+    }
     $sizeClass = in_array($size, ['sm', 'md', 'lg'], true) ? $size : 'md';
     ?>
     <div class="dash-span-<?php echo (int) $span; ?>">

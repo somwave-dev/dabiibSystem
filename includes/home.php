@@ -11,19 +11,40 @@ $k = $d['kpis'];
 
 $isAdmin = $d['isAdmin'];
 
-// ---------- role-based section visibility ----------
-$sec = [
-    'patients'     => $isAdmin || $d['isDoctor'] || $d['isReception'],
-    'appointments' => $isAdmin || $d['isDoctor'] || $d['isReception'],
-    'visits'       => $isAdmin || $d['isDoctor'] || $d['isReception'] || $d['isNurse'],
-    'lab'          => $isAdmin || $d['isDoctor'] || $d['isNurse'] || $d['isLabTech'],
-    'pharmacy'     => $isAdmin || $d['isPharmacist'],
-    'nursing'      => $isAdmin || $d['isNurse'],
-    'finance'      => $isAdmin || $d['isReception'],
-    'doctors'      => $isAdmin,
-    'reports'      => $isAdmin || $d['isDoctor'],
-    'activity'     => $isAdmin,
-];
+// ---------- section visibility ----------
+// Admin sees everything. Non-admin users only see cards for modules they were
+// explicitly granted (submenu can_view) â€” mirroring the sidebar, so anything
+// granted also shows its data here, and anything not granted stays empty.
+if ($isAdmin) {
+    $sec = [
+        'patients'     => true,
+        'appointments' => true,
+        'visits'       => true,
+        'lab'          => true,
+        'pharmacy'     => true,
+        'nursing'      => true,
+        'finance'      => true,
+        'doctors'      => true,
+        'reports'      => true,
+        'activity'     => true,
+    ];
+} else {
+    // Non-admin: each dashboard tile has its own key. A module section stays
+    // visible while at least one of its tiles is granted (explicit override
+    // or the module's can_view default).
+    $sec = [
+        'patients'     => clinic_widget_any(['kpi_patients', 'chart_patients', 'chart_gender', 'chart_age', 'chart_type', 'list_operations_summary']),
+        'appointments' => clinic_widget_any(['kpi_appointments_today', 'chart_appt_status', 'btn_new_appointment']),
+        'visits'       => clinic_widget_any(['kpi_visits_today', 'chart_doctors_appts', 'chart_visits_trend', 'list_recent_visits', 'list_visits_today', 'btn_new_visit']),
+        'lab'          => clinic_widget_any(['kpi_lab_pending', 'chart_lab_status', 'list_top_lab_tests', 'list_recent_lab_results']),
+        'pharmacy'     => clinic_widget_any(['kpi_pharmacy_today', 'chart_pharmacy_trend', 'list_top_medicines', 'list_low_stock', 'list_expired', 'btn_pharmacy_sale']),
+        'nursing'      => clinic_widget_any(['kpi_nursing_today', 'list_nursing_activity']),
+        'finance'      => clinic_widget_any(['kpi_revenue_today', 'kpi_outstanding', 'chart_revenue_trend', 'chart_revenue_method', 'list_recent_payments', 'list_account_balances', 'btn_payment_desk']),
+        'doctors'      => clinic_widget_any(['kpi_doctors', 'list_doctor_workload']),
+        'reports'      => clinic_can_widget('dash_reports'),
+        'activity'     => clinic_can_widget('dash_activity'),
+    ];
+}
 
 $roleLabel = (string) ($_SESSION['role_name'] ?? '');
 $siteName = trim((string) (clinic_dash_val("SELECT setting_value FROM system_settings WHERE setting_key = 'site_name' LIMIT 1") ?? ''));
@@ -106,26 +127,37 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
         <?php echo clinic_flash() ?? ''; ?>
     <?php endif; ?>
 
+    <?php if (!$isAdmin && !array_filter($sec)): ?>
+        <!-- Non-admin with no granted modules: empty dashboard (no cards/data). -->
+        <div class="card clinic-card border-0">
+            <div class="card-body text-center py-5">
+                <i class="ti ti-shield-lock d-block mx-auto mb-3 text-secondary" style="font-size:2.6rem;opacity:.55"></i>
+                <h5 class="fw-semibold mb-1">Your dashboard is empty</h5>
+                <p class="text-muted mb-0">No modules have been granted to your account yet. Contact the administrator to request access.</p>
+            </div>
+        </div>
+    <?php else: ?>
+
     <!-- ============ KPI ROW ============ -->
     <div class="dashboard-grid">
-        <?php if ($sec['patients']): clinic_dash_kpi('Patients', number_format($k['patients_total']), 'ti-users', 'primary', 'pages/patients.php', number_format($k['patients_today']) . ' new today'); endif; ?>
-        <?php if ($sec['appointments']): clinic_dash_kpi('Appointments Today', number_format($k['appointments_today']), 'ti-calendar-check', 'info', 'pages/appointments.php', $k['appointments_pending'] . ' pending'); endif; ?>
-        <?php if ($sec['visits']): clinic_dash_kpi('Visits Today', number_format($k['visits_today']), 'ti-stethoscope', 'success', 'pages/visits.php', 'across all doctors'); endif; ?>
-        <?php if ($sec['lab']): clinic_dash_kpi('Pending Lab', number_format($k['lab_pending']), 'ti-microscope', 'warning', 'pages/lab_results.php', $k['lab_critical'] . ' critical'); endif; ?>
-        <?php if ($sec['pharmacy']): clinic_dash_kpi('Pharmacy Today', clinic_money($k['pharmacy_today']), 'ti-medicine', 'secondary', 'pages/pharmacy_sales.php', $k['low_stock_count'] . ' low stock'); endif; ?>
-        <?php if ($sec['finance']): clinic_dash_kpi('Revenue Today', clinic_money($k['revenue_today']), 'ti-cash', 'success', 'pages/payments.php', 'Week: ' . clinic_money($k['revenue_week'])); endif; ?>
-        <?php if ($sec['doctors']): clinic_dash_kpi('Doctors', number_format($k['doctors_active']), 'ti-user-md', 'primary', 'pages/doctors.php', $k['doctors_total'] . ' total'); endif; ?>
-        <?php if ($sec['doctors']): clinic_dash_kpi('Outstanding', clinic_money($k['patient_debt']), 'ti-report-money', 'danger', 'pages/accounts.php', 'patient balances'); endif; ?>
-        <?php if ($d['isNurse']): clinic_dash_kpi('Nursing Today', number_format($d['nursingToday']), 'ti-nurse', 'info', 'pages/nursing_records.php', $d['nursingTotal'] . ' all-time records'); endif; ?>
+        <?php clinic_dash_kpi('Patients', number_format($k['patients_total']), 'ti-users', 'primary', 'pages/patients.php', number_format($k['patients_today']) . ' new today', 'kpi_patients'); ?>
+        <?php clinic_dash_kpi('Appointments Today', number_format($k['appointments_today']), 'ti-calendar-check', 'info', 'pages/appointments.php', $k['appointments_pending'] . ' pending', 'kpi_appointments_today'); ?>
+        <?php clinic_dash_kpi('Visits Today', number_format($k['visits_today']), 'ti-stethoscope', 'success', 'pages/visits.php', 'across all doctors', 'kpi_visits_today'); ?>
+        <?php clinic_dash_kpi('Pending Lab', number_format($k['lab_pending']), 'ti-microscope', 'warning', 'pages/lab_results.php', $k['lab_critical'] . ' critical', 'kpi_lab_pending'); ?>
+        <?php clinic_dash_kpi('Pharmacy Today', clinic_money($k['pharmacy_today']), 'ti-medicine', 'secondary', 'pages/pharmacy_sales.php', $k['low_stock_count'] . ' low stock', 'kpi_pharmacy_today'); ?>
+        <?php clinic_dash_kpi('Revenue Today', clinic_money($k['revenue_today']), 'ti-cash', 'success', 'pages/payments.php', 'Week: ' . clinic_money($k['revenue_week']), 'kpi_revenue_today'); ?>
+        <?php clinic_dash_kpi('Doctors', number_format($k['doctors_active']), 'ti-user-md', 'primary', 'pages/doctors.php', $k['doctors_total'] . ' total', 'kpi_doctors'); ?>
+        <?php clinic_dash_kpi('Outstanding', clinic_money($k['patient_debt']), 'ti-report-money', 'danger', 'pages/accounts.php', 'patient balances', 'kpi_outstanding'); ?>
+        <?php clinic_dash_kpi('Nursing Today', number_format($d['nursingToday']), 'ti-nurse', 'info', 'pages/nursing_records.php', $d['nursingTotal'] . ' all-time records', 'kpi_nursing_today'); ?>
     </div>
     <!-- ============ CHARTS ROW 1 ============ -->
     <div class="dashboard-grid">
         <?php if ($sec['finance']): ?>
-            <?php clinic_dash_chart('chartRevenue', 'Revenue Trend â€” Last 7 Days', 'Payments', 7, 'lg'); ?>
-            <?php clinic_dash_chart('chartRevenueDonut', 'Revenue by Payment Method', 'All time', 5, 'lg'); ?>
+            <?php clinic_dash_chart('chartRevenue', 'Revenue Trend â€” Last 7 Days', 'Payments', 7, 'lg', 'chart_revenue_trend'); ?>
+            <?php clinic_dash_chart('chartRevenueDonut', 'Revenue by Payment Method', 'All time', 5, 'lg', 'chart_revenue_method'); ?>
         <?php endif; ?>
         <?php if ($sec['patients']): ?>
-            <?php clinic_dash_chart('chartPatients', 'New Patients â€” Last 7 Days', 'Registrations', 5, 'lg'); ?>
+            <?php clinic_dash_chart('chartPatients', 'New Patients â€” Last 7 Days', 'Registrations', 5, 'lg', 'chart_patients'); ?>
             <div class="dash-span-7">
                 <div class="card clinic-card h-100 dash-card">
                     <div class="card-header d-flex align-items-center justify-content-between py-3">
@@ -173,9 +205,9 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
     <?php if ($sec['patients']): ?>
         <!-- ============ PATIENT ANALYTICS ============ -->
         <div class="dashboard-grid">
-            <?php clinic_dash_chart('chartGender', 'Patients by Gender', 'All patients', 4, 'sm'); ?>
-            <?php clinic_dash_chart('chartAge', 'Patients by Age Group', 'Child vs Adult', 4, 'sm'); ?>
-            <?php clinic_dash_chart('chartType', 'Patients by Type', 'Credit vs Walk-in', 4, 'sm'); ?>
+            <?php clinic_dash_chart('chartGender', 'Patients by Gender', 'All patients', 4, 'sm', 'chart_gender'); ?>
+            <?php clinic_dash_chart('chartAge', 'Patients by Age Group', 'Child vs Adult', 4, 'sm', 'chart_age'); ?>
+            <?php clinic_dash_chart('chartType', 'Patients by Type', 'Credit vs Walk-in', 4, 'sm', 'chart_type'); ?>
         </div>
     <?php endif; ?>
 
@@ -209,7 +241,7 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                     </div>
                 </div>
             </div>
-            <?php clinic_dash_chart('chartApptStatus', 'Appointment Status â€” Today', 'Breakdown', 5, 'md'); ?>
+            <?php clinic_dash_chart('chartApptStatus', 'Appointment Status â€” Today', 'Breakdown', 5, 'md', 'chart_appt_status'); ?>
         </div>
     <?php endif; ?>
     <?php if ($sec['visits']): ?>
@@ -235,10 +267,10 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                     </div>
                 </div>
             </div>
-            <?php clinic_dash_chart('chartDoctors', 'Appointments by Doctor â€” Today', 'Top doctors', 6, 'md'); ?>
+            <?php clinic_dash_chart('chartDoctors', 'Appointments by Doctor â€” Today', 'Top doctors', 6, 'md', 'chart_doctors_appts'); ?>
         </div>
         <div class="dashboard-grid">
-            <?php clinic_dash_chart('chartVisits', 'Visits Trend â€” Last 7 Days', 'Count', 6, 'md'); ?>
+            <?php clinic_dash_chart('chartVisits', 'Visits Trend â€” Last 7 Days', 'Count', 6, 'md', 'chart_visits_trend'); ?>
             <div class="dash-span-6">
                 <div class="card clinic-card h-100 dash-card">
                     <div class="card-header d-flex align-items-center justify-content-between py-3">
@@ -263,7 +295,7 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
     <?php if ($sec['lab']): ?>
         <!-- ============ LABORATORY ============ -->
         <div class="dashboard-grid">
-            <?php clinic_dash_chart('chartLabDonut', 'Lab Status', 'Pending vs Completed', 4, 'sm'); ?>
+            <?php clinic_dash_chart('chartLabDonut', 'Lab Status', 'Pending vs Completed', 4, 'sm', 'chart_lab_status'); ?>
             <div class="dash-span-4">
                 <div class="card clinic-card h-100 dash-card">
                     <div class="card-header d-flex align-items-center justify-content-between py-3">
@@ -308,7 +340,7 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
     <?php if ($sec['pharmacy']): ?>
         <!-- ============ PHARMACY ============ -->
         <div class="dashboard-grid">
-            <?php clinic_dash_chart('chartPharmacy', 'Pharmacy Sales â€” Last 7 Days', 'Revenue', 6, 'md'); ?>
+            <?php clinic_dash_chart('chartPharmacy', 'Pharmacy Sales â€” Last 7 Days', 'Revenue', 6, 'md', 'chart_pharmacy_trend'); ?>
             <div class="dash-span-6">
                 <div class="card clinic-card h-100 dash-card">
                     <div class="card-header d-flex align-items-center justify-content-between py-3">
@@ -703,7 +735,7 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
             var lbl = themeDark ? '#a8b0bd' : '#6c757d';
             var baseOpts = { chart: { toolbar: { show: false }, fontFamily: 'inherit' }, dataLabels: { enabled: false }, stroke: { curve: 'smooth', width: 3 }, grid: { borderColor: grid } };
             function money(v) { return '$' + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-<?php if ($sec['finance']): ?>
+<?php if (clinic_can_widget('chart_revenue_trend')): ?>
             new ApexCharts(document.querySelector('#chartRevenue'), Object.assign({}, baseOpts, {
                 chart: Object.assign({}, baseOpts.chart, { type: 'area', height: '100%' }),
                 series: [{ name: 'Payments', data: <?php echo json_encode($d['revenueTrend']['values']); ?> }],
@@ -712,6 +744,8 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                 colors: ['#1971c2'], fill: { type: 'gradient', gradient: { opacityFrom: 0.35, opacityTo: 0.05 } },
                 tooltip: { y: { formatter: money } }
             })).render();
+<?php endif; ?>
+<?php if (clinic_can_widget('chart_revenue_method')): ?>
             new ApexCharts(document.querySelector('#chartRevenueDonut'), Object.assign({}, baseOpts, {
                 chart: Object.assign({}, baseOpts.chart, { type: 'donut', height: '100%' }),
                 series: <?php echo json_encode(array_values($d['revenueByMethod'])); ?>,
@@ -721,7 +755,7 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                 tooltip: { y: { formatter: money } }
             })).render();
 <?php endif; ?>
-<?php if ($sec['patients']): ?>
+<?php if (clinic_can_widget('chart_patients')): ?>
             new ApexCharts(document.querySelector('#chartPatients'), Object.assign({}, baseOpts, {
                 chart: Object.assign({}, baseOpts.chart, { type: 'bar', height: '100%' }),
                 series: [{ name: 'New patients', data: <?php echo json_encode($d['patientTrend']['values']); ?> }],
@@ -729,6 +763,8 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                 yaxis: { labels: { style: { colors: lbl } } },
                 colors: ['#2E37A4'], plotOptions: { bar: { borderRadius: 4, columnWidth: '45%' } }
             })).render();
+<?php endif; ?>
+<?php if (clinic_can_widget('chart_gender')): ?>
             new ApexCharts(document.querySelector('#chartGender'), Object.assign({}, baseOpts, {
                 chart: Object.assign({}, baseOpts.chart, { type: 'donut', height: '100%' }),
                 series: [<?php echo (int) ($d['patientGender']['Male'] ?? 0); ?>, <?php echo (int) ($d['patientGender']['Female'] ?? 0); ?>],
@@ -736,6 +772,8 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                 colors: ['#1971c2', '#e64980'],
                 legend: { position: 'bottom', labels: { colors: lbl } }
             })).render();
+<?php endif; ?>
+<?php if (clinic_can_widget('chart_age')): ?>
             new ApexCharts(document.querySelector('#chartAge'), Object.assign({}, baseOpts, {
                 chart: Object.assign({}, baseOpts.chart, { type: 'bar', height: '100%' }),
                 series: [{ name: 'Patients', data: [<?php echo (int) ($d['patientAge']['Child'] ?? 0); ?>, <?php echo (int) ($d['patientAge']['Adult'] ?? 0); ?>] }],
@@ -743,6 +781,8 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                 yaxis: { labels: { style: { colors: lbl } } },
                 colors: ['#0dcaf0'], plotOptions: { bar: { borderRadius: 4, columnWidth: '40%' } }
             })).render();
+<?php endif; ?>
+<?php if (clinic_can_widget('chart_type')): ?>
             new ApexCharts(document.querySelector('#chartType'), Object.assign({}, baseOpts, {
                 chart: Object.assign({}, baseOpts.chart, { type: 'bar', height: '100%' }),
                 series: [{ name: 'Patients', data: [<?php echo (int) ($d['patientType']['Credit'] ?? 0); ?>, <?php echo (int) ($d['patientType']['Walk-in'] ?? 0); ?>] }],
@@ -751,7 +791,7 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                 colors: ['#40c057'], plotOptions: { bar: { borderRadius: 4, columnWidth: '40%' } }
             })).render();
 <?php endif; ?>
-<?php if ($sec['appointments']): ?>
+<?php if (clinic_can_widget('chart_appt_status')): ?>
             new ApexCharts(document.querySelector('#chartApptStatus'), Object.assign({}, baseOpts, {
                 chart: Object.assign({}, baseOpts.chart, { type: 'bar', height: '100%' }),
                 series: [{ name: 'Appointments', data: <?php echo json_encode(array_values($d['appointmentsByStatus'])); ?> }],
@@ -760,7 +800,7 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                 colors: ['#0dcaf0'], plotOptions: { bar: { borderRadius: 4, columnWidth: '45%' } }
             })).render();
 <?php endif; ?>
-<?php if ($sec['visits']): ?>
+<?php if (clinic_can_widget('chart_doctors_appts')): ?>
             new ApexCharts(document.querySelector('#chartDoctors'), Object.assign({}, baseOpts, {
                 chart: Object.assign({}, baseOpts.chart, { type: 'bar', height: '100%' }),
                 series: [{ name: 'Appointments', data: <?php echo json_encode(array_column($d['appointmentsByDoctor'], 'count')); ?> }],
@@ -768,6 +808,8 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                 yaxis: { labels: { style: { colors: lbl } } },
                 colors: ['#2E37A4'], plotOptions: { bar: { borderRadius: 4, horizontal: true } }
             })).render();
+<?php endif; ?>
+<?php if (clinic_can_widget('chart_visits_trend')): ?>
             new ApexCharts(document.querySelector('#chartVisits'), Object.assign({}, baseOpts, {
                 chart: Object.assign({}, baseOpts.chart, { type: 'bar', height: '100%' }),
                 series: [{ name: 'Visits', data: <?php echo json_encode($d['visitsTrend']['values']); ?> }],
@@ -776,7 +818,7 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                 colors: ['#2E37A4'], plotOptions: { bar: { borderRadius: 4, columnWidth: '40%' } }
             })).render();
 <?php endif; ?>
-<?php if ($sec['lab']): ?>
+<?php if (clinic_can_widget('chart_lab_status')): ?>
             new ApexCharts(document.querySelector('#chartLabDonut'), Object.assign({}, baseOpts, {
                 chart: Object.assign({}, baseOpts.chart, { type: 'donut', height: '100%' }),
                 series: [<?php echo (int) $k['lab_completed']; ?>, <?php echo (int) $k['lab_pending']; ?>],
@@ -785,7 +827,7 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
                 legend: { position: 'bottom', labels: { colors: lbl } }
             })).render();
 <?php endif; ?>
-<?php if ($sec['pharmacy']): ?>
+<?php if (clinic_can_widget('chart_pharmacy_trend')): ?>
             new ApexCharts(document.querySelector('#chartPharmacy'), Object.assign({}, baseOpts, {
                 chart: Object.assign({}, baseOpts.chart, { type: 'area', height: '100%' }),
                 series: [{ name: 'Sales', data: <?php echo json_encode($d['pharmacyTrend']['values']); ?> }],
@@ -799,6 +841,9 @@ $title = $roleLabel !== '' ? $siteName . ' â€” ' . $roleLabel : $siteName . ' â€
 
         });
     </script>
+    <?php endif; // end empty-dashboard vs. sections (non-admin gating) ?>
+
+
 </div>
 
 

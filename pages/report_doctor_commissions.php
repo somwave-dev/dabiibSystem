@@ -4,7 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/report_bootstrap.php';
 
 [$boundFrom, $boundTo] = clinic_reports_bounds();
-$visits = clinic_sp_rows('sp_visits_list');
+$visits = clinic_doctor_scoped_list('sp_visits_list');
 $doctors = clinic_sp_rows('sp_doctors_list');
 
 if ((string) ($_GET['export'] ?? '') === 'csv') {

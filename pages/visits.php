@@ -11,18 +11,9 @@ function clinic_visit_is_admin_user(): bool
 
 function clinic_visit_doctor_id_for_user(array $doctors): ?int
 {
-    $userId = clinic_current_user_id();
-    if ($userId === null) {
-        return null;
-    }
-
-    foreach ($doctors as $doctor) {
-        if ((int) ($doctor['User_ID'] ?? 0) === $userId) {
-            return (int) ($doctor['Doctor_ID'] ?? 0);
-        }
-    }
-
-    return null;
+    // Central resolver also follows the staff link (doctors.User_ID may be
+    // empty while the login belongs to staff.User_ID of the doctor).
+    return clinic_current_doctor_id();
 }
 
 function clinic_visit_ensure_visit_scope(int $visitId, bool $isDoctorScoped, ?int $doctorId): void
@@ -89,6 +80,7 @@ try {
         $action = clinic_post_string('action');
 
         if ($action === 'create_visit') {
+            clinic_require_can(4, 'insert');
             $appointmentIdPost = clinic_post_int('Appointment_ID');
             clinic_visit_ensure_appointment_scope($appointmentIdPost, $isDoctorScoped, $currentDoctorId);
             clinic_visit_ensure_patient_scope(clinic_post_int('Patient_ID'), $isDoctorScoped, $currentDoctorId);
@@ -104,6 +96,7 @@ try {
         }
 
         if ($action === 'add_lab') {
+            clinic_require_can(8, 'insert');
             clinic_visit_ensure_visit_scope(clinic_post_int('Visit_ID'), $isDoctorScoped, $currentDoctorId);
             $testIds = $_POST['Test_ID'] ?? [];
             if (!is_array($testIds)) {
@@ -128,6 +121,9 @@ try {
         }
 
         if ($action === 'manage_lab_requests') {
+            if (!clinic_can(8, 'insert') && !clinic_can(8, 'update') && !clinic_can(8, 'delete')) {
+                throw new RuntimeException('You do not have permission to manage lab requests.');
+            }
             $visitIdPost = clinic_post_int('Visit_ID');
             clinic_visit_ensure_visit_scope($visitIdPost, $isDoctorScoped, $currentDoctorId);
             $testIds = $_POST['Test_ID'] ?? [];
@@ -160,6 +156,9 @@ try {
         }
 
         if ($action === 'update_lab') {
+            if (!clinic_can(8, 'update') && !clinic_can(8, 'insert')) {
+                throw new RuntimeException('You do not have permission to update lab requests.');
+            }
             $resultId = clinic_post_int('Result_ID');
             clinic_visit_ensure_visit_scope(clinic_post_int('Visit_ID'), $isDoctorScoped, $currentDoctorId);
             $currentLab = clinic_sp_one('sp_lab_results_get', [$resultId], 'i');
@@ -182,6 +181,9 @@ try {
         }
 
         if ($action === 'delete_lab') {
+            if (!clinic_can(8, 'delete') && !clinic_can(8, 'update') && !clinic_can_action(8, 'cancel')) {
+                throw new RuntimeException('You do not have permission to delete lab requests.');
+            }
             $resultId = clinic_post_int('Result_ID');
             clinic_visit_ensure_visit_scope(clinic_post_int('Visit_ID'), $isDoctorScoped, $currentDoctorId);
             $currentLab = clinic_sp_one('sp_lab_results_get', [$resultId], 'i');
@@ -198,6 +200,9 @@ try {
         }
 
         if ($action === 'bulk_update_lab') {
+            if (!clinic_can(8, 'update') && !clinic_can(8, 'insert')) {
+                throw new RuntimeException('You do not have permission to update lab requests.');
+            }
             $visitIdPost = clinic_post_int('Visit_ID');
             clinic_visit_ensure_visit_scope($visitIdPost, $isDoctorScoped, $currentDoctorId);
             $testId = clinic_post_int('Test_ID');
@@ -234,6 +239,9 @@ try {
         }
 
         if ($action === 'bulk_delete_lab') {
+            if (!clinic_can(8, 'delete') && !clinic_can(8, 'update') && !clinic_can_action(8, 'cancel')) {
+                throw new RuntimeException('You do not have permission to delete lab requests.');
+            }
             $visitIdPost = clinic_post_int('Visit_ID');
             clinic_visit_ensure_visit_scope($visitIdPost, $isDoctorScoped, $currentDoctorId);
             $resultIds = $_POST['Result_ID'] ?? [];
@@ -263,6 +271,7 @@ try {
         }
 
         if ($action === 'add_prescription') {
+            clinic_require_can(11, 'insert');
             clinic_visit_ensure_visit_scope(clinic_post_int('Visit_ID'), $isDoctorScoped, $currentDoctorId);
             $medicineIds = $_POST['Medicine_ID'] ?? [];
             $dosages = $_POST['Dosage'] ?? [];
@@ -297,6 +306,9 @@ try {
         }
 
         if ($action === 'manage_prescriptions') {
+            if (!clinic_can(11, 'insert') && !clinic_can(11, 'update') && !clinic_can(11, 'delete') && !clinic_can_action(11, 'cancel')) {
+                throw new RuntimeException('You do not have permission to manage prescriptions.');
+            }
             $visitIdPost = clinic_post_int('Visit_ID');
             clinic_visit_ensure_visit_scope($visitIdPost, $isDoctorScoped, $currentDoctorId);
             $medicineIds = $_POST['Medicine_ID'] ?? [];
@@ -338,6 +350,9 @@ try {
         }
 
         if ($action === 'update_prescription') {
+            if (!clinic_can(11, 'insert') && !clinic_can(11, 'update') && !clinic_can(11, 'delete')) {
+                throw new RuntimeException('You do not have permission to update prescriptions.');
+            }
             $prescriptionId = clinic_post_int('Prescription_ID');
             clinic_visit_ensure_visit_scope(clinic_post_int('Visit_ID'), $isDoctorScoped, $currentDoctorId);
             $currentPrescription = clinic_sp_one('sp_prescriptions_get', [$prescriptionId], 'i');
@@ -356,6 +371,9 @@ try {
         }
 
         if ($action === 'delete_prescription') {
+            if (!clinic_can(11, 'delete') && !clinic_can_action(11, 'cancel')) {
+                throw new RuntimeException('You do not have permission to delete prescriptions.');
+            }
             $prescriptionId = clinic_post_int('Prescription_ID');
             clinic_visit_ensure_visit_scope(clinic_post_int('Visit_ID'), $isDoctorScoped, $currentDoctorId);
             $currentPrescription = clinic_sp_one('sp_prescriptions_get', [$prescriptionId], 'i');
@@ -369,6 +387,9 @@ try {
         }
 
         if ($action === 'add_nursing') {
+            if (!clinic_can(6, 'insert') && !clinic_can(7, 'insert')) {
+                throw new RuntimeException('You do not have permission to record nursing services.');
+            }
             clinic_visit_ensure_visit_scope(clinic_post_int('Visit_ID'), $isDoctorScoped, $currentDoctorId);
             clinic_sp_exec('sp_nursing_records_save', [0, clinic_post_int('Visit_ID'), clinic_post_int('Service_ID'), clinic_post_string('Medicine_Used'), clinic_current_user_id(), '']);
             clinic_flash('Nursing service recorded.');

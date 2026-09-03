@@ -100,14 +100,16 @@ $sidebarLogoDark = '';  // light version shown in dark mode
 try {
     require_once __DIR__ . '/../config/codes.php';
     $sideCo = new Codes();
-    $sidebarLogo = (string) $sideCo->setting('site_logo');
+    // Wide/wordmark logo shown on the expanded LIGHT sidebar.
+    $sidebarLogo = (string) $sideCo->setting('logo_dark');
+    if ($sidebarLogo === '') {
+        $sidebarLogo = (string) $sideCo->setting('site_logo');
+    }
+    // Light/white version shown when the sidebar is in DARK mode.
     $sidebarLogoDark = (string) $sideCo->setting('logo_light');
 } catch (Throwable $e) {
     $sidebarLogo = '';
     $sidebarLogoDark = '';
-}
-if ($sidebarLogoDark === '') {
-    $sidebarLogoDark = $sidebarLogo;
 }
 foreach (['sidebarLogo', 'sidebarLogoDark'] as $logoVar) {
     if ($$logoVar !== '') {
@@ -118,7 +120,6 @@ foreach (['sidebarLogo', 'sidebarLogoDark'] as $logoVar) {
 }
 
 /* Privilege set: which submenu_ids can this user view? */
-$hasPrivileges = false;
 $allowedSubIds = [];
 if (!$isAdmin && $currentUserNo > 0) {
     $stmt = $conn->prepare('SELECT submenu_id FROM user_privileges WHERE User_ID = ? AND can_view = 1');
@@ -127,7 +128,6 @@ if (!$isAdmin && $currentUserNo > 0) {
         $stmt->execute();
         $pRes = $stmt->get_result();
         while ($pRow = $pRes->fetch_assoc()) {
-            $hasPrivileges = true;
             $allowedSubIds[(int) $pRow['submenu_id']] = true;
         }
         $pRes->free();
@@ -152,6 +152,20 @@ if ($res) {
         $subsByMenu[(int) $row['menu_id']][] = $row;
     }
     $res->free();
+}
+
+// A non-admin user only sees menus for submenus they can_view. Users with no
+// granted privileges yet get an empty menu until an admin grants access.
+$showMenus = $isAdmin;
+if (!$showMenus) {
+    foreach ($subsByMenu as $groupItems) {
+        foreach ($groupItems as $s2) {
+            if (isset($allowedSubIds[(int) ($s2['submenu_id'] ?? 0)])) {
+                $showMenus = true;
+                break 2;
+            }
+        }
+    }
 }
 ?>
 <div class="sidebar" id="sidebar">
@@ -180,6 +194,12 @@ if ($res) {
     </div>
     <div class="sidebar-inner" data-simplebar="">
         <div id="sidebar-menu" class="sidebar-menu">
+            <?php if (!$showMenus): ?>
+            <div class="text-center text-muted small px-3 py-4">
+                <i class="ti ti-lock d-block fs-4 mb-2"></i>
+                No access yet.<br>Contact the administrator to be granted menu access.
+            </div>
+            <?php else: ?>
             <ul>
                 <li class="menu-title"><span>Main Menu</span></li>
                 <li>
@@ -190,7 +210,7 @@ if ($res) {
                             if (isset($subsByMenu[$mid])) {
                                 foreach ($subsByMenu[$mid] as $sub) {
                                     $subId = (int) $sub['submenu_id'];
-                                    if (!$isAdmin && $hasPrivileges && empty($allowedSubIds[$subId])) {
+                                    if (!$isAdmin && empty($allowedSubIds[$subId])) {
                                         continue;
                                     }
                                     $href = clinic_sidebar_normalize_href((string) ($sub['menu_url'] ?? ''));
@@ -247,6 +267,7 @@ if ($res) {
                     </ul>
                 </li>
             </ul>
+            <?php endif; ?>
         </div>
     </div>
 </div>

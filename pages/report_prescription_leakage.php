@@ -8,7 +8,7 @@ $windowDays = max(7, min(365, (int) ($_GET['window_days'] ?? 90)));
 
 $prescriptions = clinic_sp_rows('sp_prescriptions_list');
 $pharmacySales = clinic_sp_rows('sp_pharmacy_sales_list');
-$visits = clinic_sp_rows('sp_visits_list');
+$visits = clinic_doctor_scoped_list('sp_visits_list');
 
 $leak = clinic_report_unfulfilled_prescriptions($prescriptions, $pharmacySales, $visits, $boundFrom, $boundTo, $windowDays);
 

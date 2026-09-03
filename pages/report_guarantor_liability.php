@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/report_bootstrap.php';
 
-$allPatients = clinic_sp_rows('sp_patients_list');
+$allPatients = clinic_doctor_scoped_list('sp_patients_list');
 $rows = clinic_report_guarantor_liability($allPatients);
 
 if ((string) ($_GET['export'] ?? '') === 'csv') {

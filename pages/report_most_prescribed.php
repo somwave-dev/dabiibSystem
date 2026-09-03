@@ -5,7 +5,7 @@ require_once __DIR__ . '/../includes/report_bootstrap.php';
 
 [$boundFrom, $boundTo] = clinic_reports_bounds();
 $prescriptions = clinic_sp_rows('sp_prescriptions_list');
-$visits = clinic_sp_rows('sp_visits_list');
+$visits = clinic_doctor_scoped_list('sp_visits_list');
 $visitDatesById = [];
 foreach ($visits as $v) {
     $vid = (int) ($v['Visit_ID'] ?? 0);

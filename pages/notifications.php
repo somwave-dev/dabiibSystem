@@ -11,6 +11,26 @@ if (!($db instanceof mysqli)) {
 }
 
 $userId = (int) ($_SESSION['user_no'] ?? $_SESSION['User_ID'] ?? 0);
+
+// AJAX: mark a notification as read without leaving the page (view modal).
+if ((string) ($_GET['ajax'] ?? '') === 'mark_read') {
+    header('Content-Type: application/json; charset=utf-8');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id > 0) {
+        $stmt = $db->prepare('UPDATE notifications SET is_read = 1 WHERE notification_id = ? AND (user_id IS NULL OR user_id = ?)');
+        $stmt->bind_param('ii', $id, $userId);
+        $stmt->execute();
+        $stmt->close();
+    }
+    $stmt = $db->prepare('SELECT COUNT(*) AS u FROM notifications WHERE is_read = 0 AND (user_id IS NULL OR user_id = ?)');
+    $stmt->bind_param('i', $userId);
+    $stmt->execute();
+    $unread = (int) $stmt->get_result()->fetch_assoc()['u'];
+    $stmt->close();
+    echo json_encode(['ok' => true, 'unread' => $unread]);
+    exit;
+}
+
 $tab = ($_GET['view'] ?? 'all') === 'unread' ? 'unread' : 'all';
 
 // ---------- POST actions ----------
@@ -152,7 +172,16 @@ clinic_page_start('Notifications', 'Alerts and events that need your attention')
             <ul class="list-group list-group-flush">
                 <?php foreach ($items as $n): ?>
                     <?php $type = (string) ($n['type'] ?? 'info'); ?>
-                    <li class="list-group-item d-flex gap-3 align-items-start px-3 py-3">
+                    <li class="list-group-item d-flex gap-3 align-items-start px-3 py-3 clinic-notif-open"
+                        role="button" tabindex="0" title="View notification"
+                        data-nid="<?php echo (int) ($n['notification_id'] ?? 0); ?>"
+                        data-title="<?php echo clinic_h((string) ($n['title'] ?? '')); ?>"
+                        data-message="<?php echo clinic_h((string) ($n['message'] ?? '')); ?>"
+                        data-created="<?php echo clinic_h((string) ($n['created_at'] ?? '')); ?>"
+                        data-type="<?php echo clinic_h((string) ($n['type'] ?? 'info')); ?>"
+                        data-read="<?php echo (int) ($n['is_read'] ?? 0); ?>"
+                        data-link="<?php echo clinic_h((string) ($n['link'] ?? '')); ?>"
+                        style="cursor:pointer;">
                         <span class="badge <?php echo clinic_notif_color($type); ?> rounded-circle d-flex align-items-center justify-content-center" style="width:2.2rem;height:2.2rem;flex-shrink:0">
                             <i class="ti <?php echo clinic_notif_icon($type); ?>"></i>
                         </span>

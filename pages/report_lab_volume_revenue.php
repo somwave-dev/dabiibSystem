@@ -4,7 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/report_bootstrap.php';
 
 [$boundFrom, $boundTo] = clinic_reports_bounds();
-$labResults = clinic_sp_rows('sp_lab_results_list');
+$labResults = clinic_doctor_scoped_list('sp_lab_results_list');
 $labTests = clinic_sp_rows('sp_lab_tests_list');
 $prices = clinic_report_lab_prices($labTests);
 $rows = clinic_report_lab_volume_revenue($labResults, $prices, $boundFrom, $boundTo);

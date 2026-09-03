@@ -5,10 +5,10 @@ require_once __DIR__ . '/../includes/report_bootstrap.php';
 
 [$boundFrom, $boundTo] = clinic_reports_bounds();
 $payments = clinic_sp_rows('sp_payments_list');
-$visits = clinic_sp_rows('sp_visits_list');
+$visits = clinic_doctor_scoped_list('sp_visits_list');
 $doctors = clinic_sp_rows('sp_doctors_list');
 $pharmacySales = clinic_sp_rows('sp_pharmacy_sales_list');
-$labResults = clinic_sp_rows('sp_lab_results_list');
+$labResults = clinic_doctor_scoped_list('sp_lab_results_list');
 $labTests = clinic_sp_rows('sp_lab_tests_list');
 $nursingRecords = clinic_sp_rows('sp_nursing_records_list');
 $nursingServices = clinic_sp_rows('sp_nursing_services_list');

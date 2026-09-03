@@ -63,6 +63,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 (string) ($staffRow['Credential_Type'] ?? ''),
                 (string) ($staffRow['Notes'] ?? ''),
                 (string) ($staffRow['status'] ?? 'active'),
+                (float) ($staffRow['Salary'] ?? 0),
+                (string) ($staffRow['Hire_Date'] ?? '') !== '' ? (string) $staffRow['Hire_Date'] : null,
+                null,
             ]);
 
             clinic_flash('Profile details updated.');
@@ -115,8 +118,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     }
 }
 
-// Refresh image from the session (fallback: letter avatar / default).
-$currentImage = (string) ($_SESSION['user_image'] ?? ($user['image'] ?? 'default-user.png'));
+// Refresh image from the users table every time (fallback: letter avatar).
+$currentImage = clinic_current_user_avatar();
 $username = (string) ($user['Username'] ?? '');
 $displayName = (string) ($staffRow['Full_Name'] ?? $username);
 $userEmail = (string) ($staffRow['Email'] ?? ($user['email'] ?? ''));

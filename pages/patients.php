@@ -46,13 +46,21 @@ try {
     clinic_redirect('patients.php');
 }
 
-$patients = clinic_sp_rows('sp_patients_list');
+$patients = clinic_doctor_scoped_list('sp_patients_list');
 $doctors = clinic_sp_rows('sp_doctors_list');
 
 // AJAX: full patient record for the edit modal (single source of truth).
 if (isset($_GET['ajax']) && (string) $_GET['ajax'] === 'patient') {
     header('Content-Type: application/json; charset=utf-8');
     $ajaxId = (int) ($_GET['patient_id'] ?? 0);
+    if (clinic_is_doctor_scoped_user()) {
+        $doctorIdG = clinic_current_doctor_id();
+        $allowedIdsG = $doctorIdG !== null ? clinic_doctor_allowed_patient_ids($doctorIdG) : [];
+        if ($doctorIdG === null || !in_array($ajaxId, $allowedIdsG, true)) {
+            echo json_encode(['ok' => false, 'error' => 'You can only view your own patients.']);
+            exit;
+        }
+    }
     $ajaxRow = $ajaxId > 0 ? clinic_sp_one('sp_patients_get', [$ajaxId], 'i') : null;
     echo json_encode($ajaxRow ?: ['ok' => false]);
     exit;
@@ -488,7 +496,7 @@ $profileBalance = (float) ($profile['Current_Balance'] ?? 0);
                     <div class="col-md-4 mb-3"><label class="form-label">Age</label><select class="form-select" name="Age_Group"><option>Child</option><option selected>Adult</option></select></div>
                     <div class="col-md-4 mb-3"><label class="form-label">Type</label><select class="form-select" name="Patient_Type"><option>Credit</option><option selected>Walk-in</option></select></div>
                     <div class="col-md-4 mb-3"><label class="form-label">Relationship</label><select class="form-select" name="Relationship"><option>Self</option><option>Child</option><option>Spouse</option><option>Other</option></select></div>
-                    <div class="col-md-4 mb-3"><label class="form-label">Guarantor</label><select class="form-select" name="Guarantor_ID"><option value="">None</option><?php clinic_select_options(clinic_sp_rows('sp_patients_list'), 'Patient_ID', 'Full_Name'); ?></select></div>
+                    <div class="col-md-4 mb-3"><label class="form-label">Guarantor</label><select class="form-select" name="Guarantor_ID"><option value="">None</option><?php clinic_select_options(clinic_doctor_scoped_list('sp_patients_list'), 'Patient_ID', 'Full_Name'); ?></select></div>
                     <div class="col-md-6 mb-3"><label class="form-label">Credit limit</label><input class="form-control" type="number" step="0.01" name="Credit_Limit" value="0"></div>
                     <div class="col-md-6 mb-3"><label class="form-label">Opening balance</label><input class="form-control" type="number" step="0.01" name="Current_Balance" value="0"></div>
                 </div>

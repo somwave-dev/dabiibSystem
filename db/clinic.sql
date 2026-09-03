@@ -94,11 +94,110 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_appointments_save` (IN `p_Appoin
   END IF;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_collect_payment` (IN `p_Patient_ID` INT, IN `p_Account_ID` INT, IN `p_Amount` DECIMAL(10,2), IN `p_Payment_Method` VARCHAR(20), IN `p_Transaction_Ref` VARCHAR(50), IN `p_User_ID` INT)   BEGIN
-  INSERT INTO `payments` (`Patient_ID`, `Account_ID`, `Amount`, `Payment_Method`, `Transaction_Ref`, `Payment_Date`, `User_ID`) VALUES (p_Patient_ID, p_Account_ID, p_Amount, p_Payment_Method, NULLIF(p_Transaction_Ref, ''), NOW(), NULLIF(p_User_ID, 0));
-  UPDATE `patients` SET `Current_Balance` = GREATEST(`Current_Balance` - p_Amount, 0) WHERE `Patient_ID` = p_Patient_ID;
-  UPDATE `accounts` SET `Current_Balance` = `Current_Balance` + p_Amount WHERE `Account_ID` = p_Account_ID;
-  SELECT LAST_INSERT_ID() AS `Payment_ID`;
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_sync_patient_balance` (IN `p_Patient_ID` INT)   BEGIN
+  UPDATE `patients` SET `Current_Balance` = COALESCE((SELECT SUM(GREATEST(`Amount` - COALESCE(`Paid_Amount`, 0), 0)) FROM `charges` WHERE `Patient_ID` = p_Patient_ID), 0.00) WHERE `Patient_ID` = p_Patient_ID;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_charges_list` (IN `p_Patient_ID` INT, IN `p_Status` VARCHAR(20))   BEGIN
+  SELECT c.`Charge_ID`, c.`Patient_ID`, p.`Full_Name` AS `Patient_Name`, c.`Source_Type`, c.`Source_ID`,
+         c.`Description`, c.`Category`, c.`Amount`, c.`Paid_Amount`,
+         GREATEST(c.`Amount` - COALESCE(c.`Paid_Amount`, 0), 0) AS `Due`,
+         c.`Performed_By`, u.`Username` AS `Performed_By_Name`,
+         c.`Charge_Date`, c.`Status`, c.`Paid_At`
+  FROM `charges` c
+  LEFT JOIN `patients` p ON p.`Patient_ID` = c.`Patient_ID`
+  LEFT JOIN `users` u ON u.`User_ID` = c.`Performed_By`
+  WHERE (p_Patient_ID IS NULL OR p_Patient_ID = 0 OR c.`Patient_ID` = p_Patient_ID)
+    AND (p_Status IS NULL OR p_Status = '' OR c.`Status` = p_Status)
+  ORDER BY c.`Charge_ID` DESC;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_charge_add` (IN `p_Patient_ID` INT, IN `p_Source_Type` VARCHAR(30), IN `p_Source_ID` INT, IN `p_Description` VARCHAR(255), IN `p_Category` VARCHAR(60), IN `p_Amount` DECIMAL(10,2), IN `p_Performed_By` INT, IN `p_Earning_User_ID` INT, IN `p_Earning_Amount` DECIMAL(10,2))   BEGIN
+  IF p_Patient_ID IS NULL OR p_Patient_ID = 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Select a patient for the charge.';
+  END IF;
+  IF p_Amount IS NULL OR p_Amount < 0 THEN SET p_Amount = 0; END IF;
+  INSERT INTO `charges` (`Patient_ID`, `Source_Type`, `Source_ID`, `Description`, `Category`, `Amount`, `Paid_Amount`, `Performed_By`, `Charge_Date`, `Status`) VALUES (p_Patient_ID, NULLIF(p_Source_Type, ''), NULLIF(p_Source_ID, 0), NULLIF(p_Description, ''), NULLIF(p_Category, ''), p_Amount, 0.00, NULLIF(p_Performed_By, 0), NOW(), 'Unpaid');
+  SET @cid = LAST_INSERT_ID();
+  IF p_Earning_User_ID IS NOT NULL AND p_Earning_User_ID > 0 AND COALESCE(p_Earning_Amount, 0) > 0 THEN
+    INSERT INTO `earnings` (`User_ID`, `Charge_ID`, `Description`, `Amount`, `Earning_Date`, `Status`) VALUES (p_Earning_User_ID, @cid, COALESCE(NULLIF(p_Description, ''), 'Service'), p_Earning_Amount, NOW(), 'Pending');
+  END IF;
+  UPDATE `patients` SET `Current_Balance` = COALESCE((SELECT SUM(GREATEST(`Amount` - COALESCE(`Paid_Amount`, 0), 0)) FROM `charges` WHERE `Patient_ID` = p_Patient_ID), 0.00) WHERE `Patient_ID` = p_Patient_ID;
+  SELECT @cid AS `Charge_ID`;
+END$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_ensure_consultation_charge` (IN `p_Patient_ID` INT, IN `p_Doctor_ID` INT, IN `p_Doctor_User_ID` INT, IN `p_Source_Type` VARCHAR(30), IN `p_Source_ID` INT)   BEGIN
+  DECLARE v_fee DECIMAL(10,2) DEFAULT 0;
+  DECLARE v_exists INT DEFAULT 0;
+  IF p_Patient_ID IS NULL OR p_Patient_ID = 0 OR p_Doctor_ID IS NULL OR p_Doctor_ID = 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Patient and doctor are required to charge a consultation.';
+  END IF;
+  SELECT COUNT(*) INTO v_exists FROM `charges` WHERE `Source_Type` = p_Source_Type AND `Source_ID` = p_Source_ID AND `Category` = 'Consultation';
+  IF v_exists = 0 THEN
+    SELECT COALESCE(`Consultation_Fee`, 0) INTO v_fee FROM `doctors` WHERE `Doctor_ID` = p_Doctor_ID;
+    INSERT INTO `charges` (`Patient_ID`, `Source_Type`, `Source_ID`, `Description`, `Category`, `Amount`, `Paid_Amount`, `Performed_By`, `Charge_Date`, `Status`) VALUES (p_Patient_ID, p_Source_Type, p_Source_ID, 'Consultation fee', 'Consultation', v_fee, 0.00, NULLIF(p_Doctor_User_ID, 0), NOW(), 'Unpaid');
+    SET @cid = LAST_INSERT_ID();
+    IF p_Doctor_User_ID IS NOT NULL AND p_Doctor_User_ID > 0 AND v_fee > 0 THEN
+      INSERT INTO `earnings` (`User_ID`, `Charge_ID`, `Description`, `Amount`, `Earning_Date`, `Status`) VALUES (p_Doctor_User_ID, @cid, 'Consultation fee', v_fee, NOW(), 'Pending');
+    END IF;
+    UPDATE `patients` SET `Current_Balance` = COALESCE((SELECT SUM(GREATEST(`Amount` - COALESCE(`Paid_Amount`, 0), 0)) FROM `charges` WHERE `Patient_ID` = p_Patient_ID), 0.00) WHERE `Patient_ID` = p_Patient_ID;
+    SELECT @cid AS `Charge_ID`;
+  ELSE
+    SELECT 0 AS `Charge_ID`;
+  END IF;
+END$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_void_appointment_charge` (IN `p_Appointment_ID` INT, IN `p_User_ID` INT)   BEGIN
+  DECLARE v_cid INT DEFAULT 0;
+  DECLARE v_pid INT DEFAULT 0;
+  DECLARE v_paid DECIMAL(10,2) DEFAULT 0;
+  DECLARE v_acc INT DEFAULT 0;
+
+  SELECT c.`Charge_ID`, c.`Patient_ID`, c.`Paid_Amount`
+    INTO v_cid, v_pid, v_paid
+    FROM `charges` c
+   WHERE c.`Source_Type` = 'Appointment'
+     AND c.`Source_ID` = p_Appointment_ID
+     AND c.`Category` = 'Consultation'
+   LIMIT 1;
+
+  IF v_cid IS NULL OR v_cid = 0 THEN
+    SELECT 0 AS `done`;
+  ELSE
+    DELETE FROM `earnings` WHERE `Charge_ID` = v_cid;
+    IF COALESCE(v_paid, 0) > 0 THEN
+      SELECT `Account_ID` INTO v_acc FROM `payments` WHERE `Patient_ID` = v_pid ORDER BY `Payment_Date` DESC, `Payment_ID` DESC LIMIT 1;
+      IF v_acc IS NOT NULL AND v_acc > 0 THEN
+        UPDATE `accounts` SET `Current_Balance` = GREATEST(`Current_Balance` - v_paid, 0) WHERE `Account_ID` = v_acc;
+        INSERT INTO `payments` (`Patient_ID`, `Account_ID`, `Amount`, `Payment_Method`, `Transaction_Ref`, `Payment_Date`, `User_ID`)
+        VALUES (v_pid, v_acc, -v_paid, 'Cash', CONCAT('REFUND-APT-', p_Appointment_ID), NOW(), NULLIF(p_User_ID, 0));
+      END IF;
+    END IF;
+    DELETE FROM `charges` WHERE `Charge_ID` = v_cid;
+    CALL `sp_sync_patient_balance`(v_pid);
+    SELECT 1 AS `done`;
+  END IF;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_collect_payment` (IN `p_Patient_ID` INT, IN `p_Account_ID` INT, IN `p_Amount` DECIMAL(10,2), IN `p_Payment_Method` VARCHAR(20), IN `p_Transaction_Ref` VARCHAR(50), IN `p_User_ID` INT)   BEGIN
+  DECLARE v_remaining DECIMAL(10,2) DEFAULT 0;
+  DECLARE v_cid INT DEFAULT 0;
+  DECLARE v_owed DECIMAL(10,2) DEFAULT 0;
+  DECLARE v_pay DECIMAL(10,2) DEFAULT 0;
+  INSERT INTO `payments` (`Patient_ID`, `Account_ID`, `Amount`, `Payment_Method`, `Transaction_Ref`, `Payment_Date`, `User_ID`) VALUES (p_Patient_ID, p_Account_ID, p_Amount, p_Payment_Method, NULLIF(p_Transaction_Ref, ''), NOW(), NULLIF(p_User_ID, 0));
+  SET v_remaining = COALESCE(p_Amount, 0);
+  WHILE v_remaining > 0.0001 DO
+    SELECT `Charge_ID`, GREATEST(`Amount` - COALESCE(`Paid_Amount`, 0), 0) INTO v_cid, v_owed FROM `charges` WHERE `Patient_ID` = p_Patient_ID AND `Amount` > COALESCE(`Paid_Amount`, 0) ORDER BY `Charge_Date` ASC, `Charge_ID` ASC LIMIT 1;
+    IF v_cid IS NULL OR v_cid = 0 THEN
+      SET v_remaining = 0;
+    ELSE
+      SET v_pay = LEAST(v_remaining, v_owed);
+      UPDATE `charges` SET `Paid_Amount` = COALESCE(`Paid_Amount`, 0) + v_pay, `Status` = IF(v_pay >= v_owed - 0.0001, 'Paid', 'Unpaid'), `Paid_At` = IF(v_pay >= v_owed - 0.0001, NOW(), `Paid_At`) WHERE `Charge_ID` = v_cid;
+      SET v_remaining = v_remaining - v_pay;
+      SET v_cid = 0;
+    END IF;
+  END WHILE;
+  UPDATE `accounts` SET `Current_Balance` = `Current_Balance` + p_Amount WHERE `Account_ID` = p_Account_ID;
+  UPDATE `patients` SET `Current_Balance` = COALESCE((SELECT SUM(GREATEST(`Amount` - COALESCE(`Paid_Amount`, 0), 0)) FROM `charges` WHERE `Patient_ID` = p_Patient_ID), 0.00) WHERE `Patient_ID` = p_Patient_ID;
+  SELECT LAST_INSERT_ID() AS `Payment_ID`;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_complete_lab_result` (IN `p_Result_ID` INT, IN `p_Result_Details` TEXT)   BEGIN
@@ -112,6 +211,9 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_create_visit_with_actions` (IN `
   INSERT INTO `visits` (`Patient_ID`, `Doctor_ID`, `Visit_Date`, `Notes`) VALUES (p_Patient_ID, NULLIF(p_Doctor_ID, 0), NOW(), NULLIF(p_Notes, ''));
   IF p_Appointment_ID IS NOT NULL AND p_Appointment_ID > 0 THEN
     UPDATE `appointments` SET `Status` = 'Completed' WHERE `Appointment_ID` = p_Appointment_ID;
+    IF p_Doctor_ID IS NOT NULL AND p_Doctor_ID > 0 THEN
+      CALL `sp_ensure_consultation_charge`(p_Patient_ID, p_Doctor_ID, (SELECT COALESCE(d.`User_ID`, s.`User_ID`) AS `uid` FROM `doctors` d LEFT JOIN `staff` s ON s.`Staff_ID` = d.`Staff_ID` WHERE d.`Doctor_ID` = p_Doctor_ID LIMIT 1), 'Appointment', p_Appointment_ID);
+    END IF;
   END IF;
   SELECT LAST_INSERT_ID() AS `Visit_ID`;
 END$$
@@ -527,12 +629,15 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_get` (IN `p_Staff_ID` INT)
          s.`Credential_Or_Badge`, s.`Credential_Type`,
          d.`Doctor_ID`, d.`Specialization`, d.`Consultation_Fee`,
          COALESCE(d.`image`, u.`image`) AS `Image`,
-         s.`Notes`, s.`status`, s.`Created_At`, u.`last_login` AS `Last_Login`
+         s.`Notes`, s.`status`, s.`Salary`, s.`Hire_Date`,
+         s.`Created_By`, ub.`Username` AS `Created_By_Name`,
+         s.`Created_At`, u.`last_login` AS `Last_Login`
   FROM `staff` s
   LEFT JOIN `users` u ON u.`User_ID` = s.`User_ID` AND u.`deleted` = 0
   LEFT JOIN `roles` r ON r.`Role_ID` = u.`Role_ID`
   LEFT JOIN `roles` rs ON rs.`Role_ID` = s.`Role_ID`
   LEFT JOIN `doctors` d ON d.`Staff_ID` = s.`Staff_ID` OR (d.`Staff_ID` IS NULL AND d.`User_ID` = s.`User_ID`)
+  LEFT JOIN `users` ub ON ub.`User_ID` = s.`Created_By`
   WHERE s.`Staff_ID` = p_Staff_ID;
 END$$
 
@@ -544,51 +649,54 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_list` ()   BEGIN
          s.`Credential_Or_Badge`, s.`Credential_Type`,
          d.`Doctor_ID`, d.`Specialization`, d.`Consultation_Fee`,
          COALESCE(d.`image`, u.`image`) AS `Image`,
-         s.`Notes`, s.`status`, s.`Created_At`, u.`last_login` AS `Last_Login`
+         s.`Notes`, s.`status`, s.`Salary`, s.`Hire_Date`,
+         s.`Created_By`, ub.`Username` AS `Created_By_Name`,
+         s.`Created_At`, u.`last_login` AS `Last_Login`
   FROM `staff` s
   LEFT JOIN `users` u ON u.`User_ID` = s.`User_ID` AND u.`deleted` = 0
   LEFT JOIN `roles` r ON r.`Role_ID` = u.`Role_ID`
   LEFT JOIN `roles` rs ON rs.`Role_ID` = s.`Role_ID`
   LEFT JOIN `doctors` d ON d.`Staff_ID` = s.`Staff_ID` OR (d.`Staff_ID` IS NULL AND d.`User_ID` = s.`User_ID`)
+  LEFT JOIN `users` ub ON ub.`User_ID` = s.`Created_By`
   ORDER BY COALESCE(rs.`Role_Name`, r.`Role_Name`) ASC, s.`Full_Name` ASC;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_save` (IN `p_Staff_ID` INT, IN `p_User_ID` INT, IN `p_Role_ID` INT, IN `p_Full_Name` VARCHAR(100), IN `p_Phone_Number` VARCHAR(50), IN `p_Email` VARCHAR(100), IN `p_Credential_Or_Badge` VARCHAR(120), IN `p_Credential_Type` VARCHAR(60), IN `p_Notes` TEXT, IN `p_status` VARCHAR(20))   BEGIN
-  IF p_User_ID IS NOT NULL AND p_User_ID <> 0 THEN
-    IF EXISTS (
-      SELECT 1 FROM `staff`
-      WHERE `User_ID` = p_User_ID
-        AND `Staff_ID` <> COALESCE(NULLIF(p_Staff_ID, 0), -1)
-    ) THEN
-      SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'One user account can only be linked to one staff member.';
-    END IF;
-  END IF;
-  IF p_Email IS NOT NULL AND TRIM(p_Email) <> '' THEN
-    IF EXISTS (
-      SELECT 1 FROM `staff`
-      WHERE `Email` = p_Email
-        AND `Staff_ID` <> COALESCE(NULLIF(p_Staff_ID, 0), -1)
-    ) THEN
-      SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'This email address is already used by another staff member.';
-    END IF;
-  END IF;
-  IF p_Phone_Number IS NOT NULL AND TRIM(p_Phone_Number) <> '' THEN
-    IF EXISTS (
-      SELECT 1 FROM `staff`
-      WHERE `Phone_Number` = p_Phone_Number
-        AND `Staff_ID` <> COALESCE(NULLIF(p_Staff_ID, 0), -1)
-    ) THEN
-      SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'This phone number is already used by another staff member.';
-    END IF;
-  END IF;
-  IF p_Staff_ID IS NULL OR p_Staff_ID = 0 THEN
-    INSERT INTO `staff` (`User_ID`, `Role_ID`, `Full_Name`, `Phone_Number`, `Email`, `Credential_Or_Badge`, `Credential_Type`, `Notes`, `status`) VALUES (NULLIF(p_User_ID, 0), NULLIF(p_Role_ID, 0), p_Full_Name, NULLIF(p_Phone_Number, ''), NULLIF(p_Email, ''), NULLIF(p_Credential_Or_Badge, ''), NULLIF(p_Credential_Type, ''), NULLIF(p_Notes, ''), COALESCE(NULLIF(p_status, ''), 'active'));
-  ELSE
-    UPDATE `staff` SET `User_ID` = NULLIF(p_User_ID, 0), `Role_ID` = NULLIF(p_Role_ID, 0), `Full_Name` = p_Full_Name, `Phone_Number` = NULLIF(p_Phone_Number, ''), `Email` = NULLIF(p_Email, ''), `Credential_Or_Badge` = NULLIF(p_Credential_Or_Badge, ''), `Credential_Type` = NULLIF(p_Credential_Type, ''), `Notes` = NULLIF(p_Notes, ''), `status` = COALESCE(NULLIF(p_status, ''), 'active') WHERE `Staff_ID` = p_Staff_ID;
-  END IF;
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_save` (IN `p_Staff_ID` INT, IN `p_User_ID` INT, IN `p_Role_ID` INT, IN `p_Full_Name` VARCHAR(100), IN `p_Phone_Number` VARCHAR(50), IN `p_Email` VARCHAR(100), IN `p_Credential_Or_Badge` VARCHAR(120), IN `p_Credential_Type` VARCHAR(60), IN `p_Notes` TEXT, IN `p_status` VARCHAR(20), IN `p_Salary` DECIMAL(10,2), IN `p_Hire_Date` DATE, IN `p_Created_By` INT)   BEGIN
+  IF p_User_ID IS NOT NULL AND p_User_ID <> 0 THEN
+    IF EXISTS (
+      SELECT 1 FROM `staff`
+      WHERE `User_ID` = p_User_ID
+        AND `Staff_ID` <> COALESCE(NULLIF(p_Staff_ID, 0), -1)
+    ) THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'One user account can only be linked to one staff member.';
+    END IF;
+  END IF;
+  IF p_Email IS NOT NULL AND TRIM(p_Email) <> '' THEN
+    IF EXISTS (
+      SELECT 1 FROM `staff`
+      WHERE `Email` = p_Email
+        AND `Staff_ID` <> COALESCE(NULLIF(p_Staff_ID, 0), -1)
+    ) THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'This email address is already used by another staff member.';
+    END IF;
+  END IF;
+  IF p_Phone_Number IS NOT NULL AND TRIM(p_Phone_Number) <> '' THEN
+    IF EXISTS (
+      SELECT 1 FROM `staff`
+      WHERE `Phone_Number` = p_Phone_Number
+        AND `Staff_ID` <> COALESCE(NULLIF(p_Staff_ID, 0), -1)
+    ) THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'This phone number is already used by another staff member.';
+    END IF;
+  END IF;
+  IF p_Staff_ID IS NULL OR p_Staff_ID = 0 THEN
+    INSERT INTO `staff` (`User_ID`, `Role_ID`, `Full_Name`, `Phone_Number`, `Email`, `Credential_Or_Badge`, `Credential_Type`, `Notes`, `Salary`, `Hire_Date`, `Created_By`, `status`) VALUES (NULLIF(p_User_ID, 0), NULLIF(p_Role_ID, 0), p_Full_Name, NULLIF(p_Phone_Number, ''), NULLIF(p_Email, ''), NULLIF(p_Credential_Or_Badge, ''), NULLIF(p_Credential_Type, ''), NULLIF(p_Notes, ''), COALESCE(p_Salary, 0.00), NULLIF(p_Hire_Date, ''), NULLIF(p_Created_By, 0), COALESCE(NULLIF(p_status, ''), 'active'));
+  ELSE
+    UPDATE `staff` SET `User_ID` = NULLIF(p_User_ID, 0), `Role_ID` = NULLIF(p_Role_ID, 0), `Full_Name` = p_Full_Name, `Phone_Number` = NULLIF(p_Phone_Number, ''), `Email` = NULLIF(p_Email, ''), `Credential_Or_Badge` = NULLIF(p_Credential_Or_Badge, ''), `Credential_Type` = NULLIF(p_Credential_Type, ''), `Notes` = NULLIF(p_Notes, ''), `Salary` = COALESCE(p_Salary, 0.00), `Hire_Date` = NULLIF(p_Hire_Date, ''), `status` = COALESCE(NULLIF(p_status, ''), 'active') WHERE `Staff_ID` = p_Staff_ID;
+  END IF;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_staff_without_users` ()   BEGIN
@@ -696,22 +804,22 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_user_privileges_delete` (IN `p_p
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_user_privileges_get` (IN `p_privilege_id` INT)   BEGIN
-  SELECT `privilege_id`, `User_ID`, `submenu_id`, `submenu_name`, `can_view`, `can_insert`, `can_update`, `can_delete` FROM `user_privileges` WHERE `privilege_id` = p_privilege_id;
+  SELECT `privilege_id`, `User_ID`, `submenu_id`, `submenu_name`, `can_view`, `can_insert`, `can_update`, `can_delete`, `can_status` FROM `user_privileges` WHERE `privilege_id` = p_privilege_id;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_user_privileges_list` ()   BEGIN
-  SELECT up.`privilege_id`, up.`User_ID`, u.`Username`, up.`submenu_id`, s.`submenu_name`, up.`can_view`, up.`can_insert`, up.`can_update`, up.`can_delete`
+  SELECT up.`privilege_id`, up.`User_ID`, u.`Username`, up.`submenu_id`, s.`submenu_name`, up.`can_view`, up.`can_insert`, up.`can_update`, up.`can_delete`, up.`can_status`
   FROM `user_privileges` up
   LEFT JOIN `users` u ON u.`User_ID` = up.`User_ID`
   LEFT JOIN `submenues` s ON s.`submenu_id` = up.`submenu_id`
   ORDER BY up.`privilege_id` DESC;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_user_privileges_save` (IN `p_privilege_id` INT, IN `p_User_ID` INT, IN `p_submenu_id` INT, IN `p_submenu_name` VARCHAR(100), IN `p_can_view` TINYINT, IN `p_can_insert` TINYINT, IN `p_can_update` TINYINT, IN `p_can_delete` TINYINT)   BEGIN
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_user_privileges_save` (IN `p_privilege_id` INT, IN `p_User_ID` INT, IN `p_submenu_id` INT, IN `p_submenu_name` VARCHAR(100), IN `p_can_view` TINYINT, IN `p_can_insert` TINYINT, IN `p_can_update` TINYINT, IN `p_can_delete` TINYINT, IN `p_can_status` TINYINT)   BEGIN
   IF p_privilege_id IS NULL OR p_privilege_id = 0 THEN
-    INSERT INTO `user_privileges` (`User_ID`, `submenu_id`, `submenu_name`, `can_view`, `can_insert`, `can_update`, `can_delete`) VALUES (p_User_ID, p_submenu_id, p_submenu_name, COALESCE(p_can_view, 0), COALESCE(p_can_insert, 0), COALESCE(p_can_update, 0), COALESCE(p_can_delete, 0));
+    INSERT INTO `user_privileges` (`User_ID`, `submenu_id`, `submenu_name`, `can_view`, `can_insert`, `can_update`, `can_delete`, `can_status`) VALUES (p_User_ID, p_submenu_id, p_submenu_name, COALESCE(p_can_view, 0), COALESCE(p_can_insert, 0), COALESCE(p_can_update, 0), COALESCE(p_can_delete, 0), COALESCE(p_can_status, 0));
   ELSE
-    UPDATE `user_privileges` SET `User_ID` = p_User_ID, `submenu_id` = p_submenu_id, `submenu_name` = p_submenu_name, `can_view` = COALESCE(p_can_view, 0), `can_insert` = COALESCE(p_can_insert, 0), `can_update` = COALESCE(p_can_update, 0), `can_delete` = COALESCE(p_can_delete, 0) WHERE `privilege_id` = p_privilege_id;
+    UPDATE `user_privileges` SET `User_ID` = p_User_ID, `submenu_id` = p_submenu_id, `submenu_name` = p_submenu_name, `can_view` = COALESCE(p_can_view, 0), `can_insert` = COALESCE(p_can_insert, 0), `can_update` = COALESCE(p_can_update, 0), `can_delete` = COALESCE(p_can_delete, 0), `can_status` = COALESCE(p_can_status, 0) WHERE `privilege_id` = p_privilege_id;
   END IF;
 END$$
 
@@ -1117,6 +1225,50 @@ INSERT INTO `patients` (`Patient_ID`, `Full_Name`, `Phone_Number`, `Sex`, `Age_G
 
 -- --------------------------------------------------------
 
+
+--
+-- Table structure for table `charges`
+--
+
+CREATE TABLE `charges` (
+  `Charge_ID` int(11) NOT NULL AUTO_INCREMENT,
+  `Patient_ID` int(11) DEFAULT NULL,
+  `Source_Type` varchar(30) DEFAULT NULL,
+  `Source_ID` int(11) DEFAULT NULL,
+  `Description` varchar(255) DEFAULT NULL,
+  `Category` varchar(60) DEFAULT NULL,
+  `Amount` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `Paid_Amount` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `Performed_By` int(11) DEFAULT NULL,
+  `Charge_Date` datetime DEFAULT current_timestamp(),
+  `Status` enum('Unpaid','Paid') DEFAULT 'Unpaid',
+  `Paid_At` datetime DEFAULT NULL,
+  PRIMARY KEY (`Charge_ID`),
+  KEY `Patient_ID` (`Patient_ID`),
+  KEY `Status` (`Status`),
+  KEY `Performed_By` (`Performed_By`),
+  KEY `source_uniq` (`Source_Type`,`Source_ID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Table structure for table `earnings`
+--
+
+CREATE TABLE `earnings` (
+  `Earning_ID` int(11) NOT NULL AUTO_INCREMENT,
+  `User_ID` int(11) DEFAULT NULL,
+  `Charge_ID` int(11) DEFAULT NULL,
+  `Description` varchar(255) DEFAULT NULL,
+  `Amount` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `Earning_Date` datetime DEFAULT current_timestamp(),
+  `Status` enum('Pending','Paid') DEFAULT 'Pending',
+  `Paid_At` datetime DEFAULT NULL,
+  PRIMARY KEY (`Earning_ID`),
+  KEY `User_ID` (`User_ID`),
+  KEY `Status` (`Status`),
+  KEY `Charge_ID` (`Charge_ID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 --
 -- Table structure for table `payments`
 --
@@ -1125,9 +1277,12 @@ CREATE TABLE `payments` (
   `Payment_ID` int(11) NOT NULL,
   `Patient_ID` int(11) DEFAULT NULL,
   `Account_ID` int(11) DEFAULT NULL,
+  `Charge_ID` int(11) DEFAULT NULL,
   `Amount` decimal(10,2) NOT NULL,
+  `Change_Given` decimal(10,2) NOT NULL DEFAULT 0.00,
   `Payment_Method` enum('EVC Plus','eDahab','Cash','Bank') NOT NULL,
   `Transaction_Ref` varchar(50) DEFAULT NULL,
+  `Details` varchar(255) DEFAULT NULL,
   `Payment_Date` datetime DEFAULT current_timestamp(),
   `User_ID` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -1267,6 +1422,9 @@ CREATE TABLE `staff` (
   `Credential_Or_Badge` varchar(120) DEFAULT NULL COMMENT 'License / credential / professional ID',
   `Credential_Type` varchar(60) DEFAULT NULL COMMENT 'Credential type (e.g. Nurse License, Professional ID)',
   `Notes` text DEFAULT NULL,
+  `Salary` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT 'Monthly salary',
+  `Hire_Date` date DEFAULT NULL,
+  `Created_By` int(11) DEFAULT NULL COMMENT 'User who created this record',
   `status` enum('active','inactive') DEFAULT 'active',
   `Created_At` datetime DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -1296,7 +1454,7 @@ INSERT INTO `submenues` (`submenu_id`, `menu_id`, `submenu_name`, `menu_url`, `s
 (1, 1, 'Dashboard', 'index.php', 'active', 1, 0),
 (2, 2, 'Patients', 'pages/patients.php', 'active', 1, 0),
 (3, 12, 'Appointment Board', 'appointments.php', 'active', 1, 0),
-(4, 13, 'Visits', 'visits.php', 'active', 1, 0),
+(4, 13, 'Visit Workspace', 'visits.php', 'active', 1, 0),
 (5, 14, 'Doctors', 'doctors.php', 'active', 1, 0),
 (6, 3, 'Nursing Records', 'nursing_records.php', 'active', 1, 0),
 (7, 3, 'Nursing Services', 'nursing_services.php', 'active', 2, 0),
@@ -1325,7 +1483,9 @@ INSERT INTO `submenues` (`submenu_id`, `menu_id`, `submenu_name`, `menu_url`, `s
 (34, 10, 'Finance Reports', 'pages/reports_finance.php', 'active', 3, 0),
 (35, 10, 'Pharmacy Reports', 'pages/reports_pharmacy.php', 'active', 4, 0),
 (36, 10, 'Operations Reports', 'pages/reports_operations.php', 'active', 5, 0),
-(37, 10, 'Administration Reports', 'pages/reports_administration.php', 'active', 6, 0);
+(37, 10, 'Administration Reports', 'pages/reports_administration.php', 'active', 6, 0),
+(43, 6, 'Charges & Bills', 'pages/charges.php', 'active', 4, 0),
+(44, 10, 'Charges Report', 'pages/report_charges.php', 'active', 7, 0);
 
 -- --------------------------------------------------------
 
@@ -1375,7 +1535,8 @@ CREATE TABLE `user_privileges` (
   `can_view` tinyint(1) DEFAULT 0,
   `can_insert` tinyint(1) DEFAULT 0,
   `can_update` tinyint(1) DEFAULT 0,
-  `can_delete` tinyint(1) DEFAULT 0
+  `can_delete` tinyint(1) DEFAULT 0,
+  `can_status` tinyint(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
@@ -1548,7 +1709,8 @@ ALTER TABLE `sms_logs`
 --
 ALTER TABLE `staff`
   ADD PRIMARY KEY (`Staff_ID`),
-  ADD UNIQUE KEY `ux_staff_user_id` (`User_ID`);
+  ADD UNIQUE KEY `ux_staff_user_id` (`User_ID`),
+  ADD KEY `Created_By` (`Created_By`);
 
 --
 -- Indexes for table `submenues`
@@ -1759,6 +1921,20 @@ ALTER TABLE `nursing_records`
 ALTER TABLE `patients`
   ADD CONSTRAINT `patients_ibfk_1` FOREIGN KEY (`Guarantor_ID`) REFERENCES `patients` (`Patient_ID`);
 
+
+--
+-- Constraints for table `charges`
+--
+ALTER TABLE `charges`
+  ADD CONSTRAINT `fk_charges_patient` FOREIGN KEY (`Patient_ID`) REFERENCES `patients` (`Patient_ID`),
+  ADD CONSTRAINT `fk_charges_user` FOREIGN KEY (`Performed_By`) REFERENCES `users` (`User_ID`);
+
+--
+-- Constraints for table `earnings`
+--
+ALTER TABLE `earnings`
+  ADD CONSTRAINT `fk_earnings_user` FOREIGN KEY (`User_ID`) REFERENCES `users` (`User_ID`),
+  ADD CONSTRAINT `fk_earnings_charge` FOREIGN KEY (`Charge_ID`) REFERENCES `charges` (`Charge_ID`);
 --
 -- Constraints for table `payments`
 --
@@ -1793,7 +1969,8 @@ ALTER TABLE `sms_logs`
 -- Constraints for table `staff`
 --
 ALTER TABLE `staff`
-  ADD CONSTRAINT `staff_ibfk_1` FOREIGN KEY (`User_ID`) REFERENCES `users` (`User_ID`);
+  ADD CONSTRAINT `staff_ibfk_1` FOREIGN KEY (`User_ID`) REFERENCES `users` (`User_ID`),
+  ADD CONSTRAINT `staff_ibfk_2` FOREIGN KEY (`Created_By`) REFERENCES `users` (`User_ID`);
 
 --
 -- Constraints for table `submenues`
@@ -1826,3 +2003,232 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+-- --------------------------------------------------------
+-- Privilege extension: workflow/action permissions + status flag.
+-- (Schema must stay in sync with the live database.)
+-- --------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `privilege_actions` (
+  `action_id` int(11) NOT NULL AUTO_INCREMENT,
+  `submenu_id` int(11) NOT NULL,
+  `action_key` varchar(40) NOT NULL,
+  `action_label` varchar(60) NOT NULL,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`action_id`),
+  UNIQUE KEY `uq_privilege_action` (`submenu_id`, `action_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `user_privilege_actions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `User_ID` int(11) NOT NULL,
+  `action_id` int(11) NOT NULL,
+  `granted` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user_action` (`User_ID`, `action_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+INSERT IGNORE INTO `privilege_actions` (`submenu_id`, `action_key`, `action_label`, `sort_order`) VALUES
+(3, 'confirm', 'Confirm', 1),
+(3, 'cancel', 'Cancel', 2),
+(3, 'start', 'Start', 3),
+(3, 'complete', 'Complete', 4),
+(3, 'reschedule', 'Reschedule', 5),
+(4, 'start', 'Start Visit', 1),
+(4, 'complete', 'Complete Visit', 2),
+(4, 'cancel', 'Cancel Visit', 3),
+(6, 'complete', 'Complete Record', 1),
+(6, 'cancel', 'Cancel Record', 2),
+(7, 'start', 'Start', 1),
+(7, 'complete', 'Complete', 2),
+(7, 'cancel', 'Cancel', 3),
+(8, 'start', 'Start', 1),
+(8, 'in_progress', 'In Progress', 2),
+(8, 'complete', 'Complete', 3),
+(8, 'approve', 'Approve', 4),
+(8, 'release', 'Release Result', 5),
+(8, 'cancel', 'Cancel', 6),
+(10, 'sell', 'Sell', 1),
+(10, 'refund', 'Refund', 2),
+(10, 'cancel', 'Cancel', 3),
+(11, 'approve', 'Approve', 1),
+(11, 'dispense', 'Dispense', 2),
+(11, 'cancel', 'Cancel', 3),
+(13, 'receive', 'Receive Payment', 1),
+(13, 'refund', 'Refund', 2),
+(13, 'cancel', 'Cancel', 3),
+(13, 'waive', 'Waive', 4);
+
+-- Existing rows keep working: can_insert/can_update implies can_status, and
+-- existing users receive action grants for the pages they already manage.
+UPDATE `user_privileges` SET `can_status` = 1 WHERE `can_insert` = 1 OR `can_update` = 1;
+
+INSERT IGNORE INTO `user_privilege_actions` (`User_ID`, `action_id`, `granted`)
+SELECT up.`User_ID`, pa.`action_id`, 1
+FROM `user_privileges` up
+JOIN `privilege_actions` pa ON pa.`submenu_id` = up.`submenu_id`
+WHERE (up.`can_insert` = 1 OR up.`can_update` = 1) AND up.`User_ID` <> 1;
+
+-- --------------------------------------------------------
+-- Dashboard widget access (per-user on/off overrides).
+-- Default (no row) = the widget follows its module's can_view.
+-- --------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `dashboard_widgets` (
+  `widget_key` varchar(40) NOT NULL,
+  `widget_label` varchar(80) NOT NULL,
+  `module_key` varchar(30) NOT NULL,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `status` enum('active','inactive') NOT NULL DEFAULT 'active',
+  PRIMARY KEY (`widget_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `user_dashboard_widgets` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `User_ID` int(11) NOT NULL,
+  `widget_key` varchar(40) NOT NULL,
+  `granted` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user_widget` (`User_ID`, `widget_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+DELETE FROM `dashboard_widgets`;
+INSERT INTO `dashboard_widgets` (`widget_key`, `widget_label`, `module_key`, `sort_order`) VALUES
+('kpi_patients', 'KPI — Patients', 'patients', 1),
+('kpi_appointments_today', 'KPI — Appointments Today', 'appointments', 2),
+('kpi_visits_today', 'KPI — Visits Today', 'visits', 3),
+('kpi_lab_pending', 'KPI — Pending Lab', 'lab', 4),
+('kpi_pharmacy_today', 'KPI — Pharmacy Today', 'pharmacy', 5),
+('kpi_revenue_today', 'KPI — Revenue Today', 'finance', 6),
+('kpi_doctors', 'KPI — Doctors', 'doctors', 7),
+('kpi_outstanding', 'KPI — Outstanding Debt', 'finance', 8),
+('kpi_nursing_today', 'KPI — Nursing Today', 'nursing', 9),
+('btn_new_patient', 'Quick button — New Patient', 'patients', 10),
+('btn_new_appointment', 'Quick button — New Appointment', 'appointments', 11),
+('btn_new_visit', 'Quick button — New Visit', 'visits', 12),
+('btn_pharmacy_sale', 'Quick button — Pharmacy Sale', 'pharmacy', 13),
+('btn_payment_desk', 'Quick button — Payment Desk', 'finance', 14),
+('chart_revenue_trend', 'Chart — Revenue Trend 7d', 'finance', 15),
+('chart_revenue_method', 'Chart — Revenue by Payment Method', 'finance', 16),
+('chart_patients', 'Chart — New Patients 7d', 'patients', 17),
+('chart_gender', 'Chart — Patients by Gender', 'patients', 18),
+('chart_age', 'Chart — Patients by Age Group', 'patients', 19),
+('chart_type', 'Chart — Patients by Type', 'patients', 20),
+('list_operations_summary', 'List — Operations Summary', 'patients', 21),
+('chart_appt_status', 'Chart — Appointment Status Today', 'appointments', 22),
+('list_recent_visits', 'List — Recent Visits', 'visits', 23),
+('chart_doctors_appts', 'Chart — Appointments by Doctor', 'visits', 24),
+('chart_visits_trend', 'Chart — Visits Trend 7d', 'visits', 25),
+('list_visits_today', 'Card — Visits Today big stat', 'visits', 26),
+('chart_lab_status', 'Chart — Lab Status', 'lab', 27),
+('list_top_lab_tests', 'List — Top Lab Tests', 'lab', 28),
+('list_recent_lab_results', 'List — Recent Lab Results', 'lab', 29),
+('chart_pharmacy_trend', 'Chart — Pharmacy Sales 7d', 'pharmacy', 30),
+('list_top_medicines', 'List — Top Selling Medicines', 'pharmacy', 31),
+('list_low_stock', 'List — Low Stock Medicines', 'pharmacy', 32),
+('list_expired', 'List — Expired Medicines', 'pharmacy', 33),
+('list_nursing_activity', 'Card — Nursing Activity', 'nursing', 34),
+('list_doctor_workload', 'Table — Doctor Workload', 'doctors', 35),
+('list_recent_payments', 'List — Recent Payments', 'finance', 36),
+('list_account_balances', 'List — Account Balances', 'finance', 37);
+
+-- --------------------------------------------------------
+-- Invoice-scoped payment collection (payments page).
+-- Supports: selected invoice, applied amount vs change, details.
+-- --------------------------------------------------------
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS `sp_collect_payment_invoice`$$
+
+CREATE PROCEDURE `sp_collect_payment_invoice` (IN `p_Patient_ID` INT, IN `p_Account_ID` INT, IN `p_Amount` DECIMAL(10,2), IN `p_Payment_Method` VARCHAR(20), IN `p_Transaction_Ref` VARCHAR(50), IN `p_User_ID` INT, IN `p_Charge_ID` INT, IN `p_Details` VARCHAR(255), IN `p_Change` DECIMAL(10,2))   BEGIN
+
+  DECLARE v_remaining DECIMAL(10,2) DEFAULT 0;
+
+  DECLARE v_cid INT DEFAULT 0;
+
+  DECLARE v_owed DECIMAL(10,2) DEFAULT 0;
+
+  DECLARE v_pay DECIMAL(10,2) DEFAULT 0;
+
+  SET v_remaining = COALESCE(p_Amount, 0);
+
+  IF p_Charge_ID IS NOT NULL AND p_Charge_ID > 0 THEN
+
+    SELECT c.`Charge_ID`, GREATEST(c.`Amount` - COALESCE(c.`Paid_Amount`, 0), 0) INTO v_cid, v_owed FROM `charges` c WHERE c.`Charge_ID` = p_Charge_ID AND c.`Patient_ID` = p_Patient_ID AND c.`Amount` > COALESCE(c.`Paid_Amount`, 0) LIMIT 1;
+
+    IF v_cid IS NOT NULL AND v_cid > 0 THEN
+
+      SET v_pay = LEAST(v_remaining, v_owed);
+
+      UPDATE `charges` SET `Paid_Amount` = COALESCE(`Paid_Amount`, 0) + v_pay, `Status` = IF(v_pay >= v_owed - 0.0001, 'Paid', 'Unpaid'), `Paid_At` = IF(v_pay >= v_owed - 0.0001, NOW(), `Paid_At`) WHERE `Charge_ID` = v_cid;
+
+      SET v_remaining = v_remaining - v_pay;
+
+    END IF;
+
+  END IF;
+
+  WHILE v_remaining > 0.0001 DO
+
+    SELECT `Charge_ID`, GREATEST(`Amount` - COALESCE(`Paid_Amount`, 0), 0) INTO v_cid, v_owed FROM `charges` WHERE `Patient_ID` = p_Patient_ID AND `Amount` > COALESCE(`Paid_Amount`, 0) ORDER BY `Charge_Date` ASC, `Charge_ID` ASC LIMIT 1;
+
+    IF v_cid IS NULL OR v_cid = 0 THEN
+
+      SET v_remaining = 0;
+
+    ELSE
+
+      SET v_pay = LEAST(v_remaining, v_owed);
+
+      UPDATE `charges` SET `Paid_Amount` = COALESCE(`Paid_Amount`, 0) + v_pay, `Status` = IF(v_pay >= v_owed - 0.0001, 'Paid', 'Unpaid'), `Paid_At` = IF(v_pay >= v_owed - 0.0001, NOW(), `Paid_At`) WHERE `Charge_ID` = v_cid;
+
+      SET v_remaining = v_remaining - v_pay;
+
+      SET v_cid = 0;
+
+    END IF;
+
+  END WHILE;
+
+  INSERT INTO `payments` (`Patient_ID`, `Account_ID`, `Charge_ID`, `Amount`, `Change_Given`, `Payment_Method`, `Transaction_Ref`, `Details`, `Payment_Date`, `User_ID`) VALUES (p_Patient_ID, p_Account_ID, NULLIF(p_Charge_ID, 0), p_Amount, COALESCE(p_Change, 0.00), p_Payment_Method, NULLIF(p_Transaction_Ref, ''), NULLIF(p_Details, ''), NOW(), NULLIF(p_User_ID, 0));
+
+  UPDATE `accounts` SET `Current_Balance` = `Current_Balance` + p_Amount WHERE `Account_ID` = p_Account_ID;
+
+  UPDATE `patients` SET `Current_Balance` = COALESCE((SELECT SUM(GREATEST(`Amount` - COALESCE(`Paid_Amount`, 0), 0)) FROM `charges` WHERE `Patient_ID` = p_Patient_ID), 0.00) WHERE `Patient_ID` = p_Patient_ID;
+
+  SELECT LAST_INSERT_ID() AS `Payment_ID`;
+
+END$$
+
+DELIMITER ;
+
+-- --------------------------------------------------------
+-- Audit columns on core tables (Created_By/Created_At/Updated_By/Updated_At).
+-- Added after table creation so every page/table can track who created and
+-- who last updated each record and when.
+-- --------------------------------------------------------
+ALTER TABLE `users` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `patients` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `staff` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `doctors` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `appointments` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `visits` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `lab_tests` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `lab_results` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `medicines` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `pharmacy_sales` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `prescriptions` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `nursing_records` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `nursing_services` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `charges` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `payments` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `accounts` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `account_transfers` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `roles` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `menues` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ALTER TABLE `submenues` ADD COLUMN `Created_By` INT NULL, ADD COLUMN `Created_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, ADD COLUMN `Updated_By` INT NULL, ADD COLUMN `Updated_At` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+
